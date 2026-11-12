@@ -373,12 +373,17 @@ class SchedulerTests(unittest.TestCase):
 
     def test_discovery_does_not_read_process_iter_shared_info_dictionary(self):
         from dps_assistant import runtime
+        game=Path(self.directory.name)/'DPS.exe'
+        game.touch();(game.parent/'GameAssembly.dll').touch()
+        metadata=game.parent/'DPS_Data/il2cpp_data/Metadata/global-metadata.dat'
+        metadata.parent.mkdir(parents=True);metadata.touch()
         class Process:
             pid=99
             info={'name':'python.exe'}
-            def as_dict(self,attrs):return {'name':'DPS.exe','exe':str(runtime.GAME),'create_time':123}
-        with patch.object(runtime.psutil,'process_iter',return_value=[Process()]),patch.object(runtime,'box_for',return_value='box'):
-            self.assertEqual(runtime.discover(),[{'pid':99,'created':123,'box':'box','exe':str(runtime.GAME)}])
+            def as_dict(self,attrs):return {'name':'DPS.exe','exe':str(game),'create_time':123}
+        with patch.object(runtime,'GAME',None),patch.object(runtime.psutil,'process_iter',return_value=[Process()]),patch.object(runtime,'box_for',return_value='box'):
+            self.assertEqual(runtime.discover(),[{'pid':99,'created':123,'box':'box','exe':str(game)}])
+            self.assertEqual(runtime.GAME,game.resolve())
 
     def test_sandbox_multi_instance_config_preserves_host_and_other_options(self):
         from dps_assistant import runtime
