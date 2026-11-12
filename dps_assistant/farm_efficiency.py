@@ -21,8 +21,8 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
         return {'enabled': False, 'measurements': []}
     identity = str((session, strength_signature(snapshot)))
     cache = state.get('farm_efficiency')
-    if not cache or cache.get('identity') != identity:
-        cache = {'identity': identity, 'since': now, 'stages': {}}
+    if not cache or cache.get('identity') != identity or cache.get('schema') != 2:
+        cache = {'schema': 2, 'identity': identity, 'since': now, 'stages': {}}
         state['farm_efficiency'] = cache
     keys = {_key(p): p for p in candidates}
     measurements = cache['stages']
@@ -67,22 +67,26 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
                       and current['sequence'] >= previous.get('sequence', current['sequence']))
         if continuous:
             bucket = measurements.setdefault(key, {'seconds': 0, 'gained': 0, 'at': now,
-                                                   'clears': [], 'failures': [], 'since': previous['at']})
-            # Use the least rewarded party member so dead/lagging heroes remain part of the objective.
-            bucket['gained'] += min(totals[c] - previous['totals'][c] for c in totals)
+                                                   'clears': [], 'failures': [], 'gained_by_character': {c: 0 for c in totals},
+                                                   'since': previous['at']})
+            # Compare each member's cumulative reward; native updates need not arrive in the same scan.
+            for character in totals:
+                bucket['gained_by_character'][character] += totals[character] - previous['totals'][character]
+            bucket['gained'] = min(bucket['gained_by_character'].values())
             bucket['seconds'] += seconds
             bucket['at'] = now
             for outcome in state.get('battle_observation', {}).get('outcomes', []):
                 if (outcome.get('category') != 0 or outcome.get('farming') is not True
                         or outcome.get('level') != stage['level'] or outcome.get('difficulty') != stage['difficulty']
-                        or outcome.get('started', -1) < max(bucket['since'], cache['since'])
+                        or outcome.get('started', -1) < max(bucket['since'], cache['since'], previous['segment_since'])
                         or outcome.get('observed', -1) > now):
                     continue
                 field = {'Cleared': 'clears', 'Failed': 'failures'}.get(outcome.get('result'))
                 sequence = outcome.get('sequence')
                 if field and _number(sequence) and sequence not in bucket[field]:
                     bucket[field] = (bucket[field] + [sequence])[-40:]
-        cache['last'] = {'key': key, 'at': now, 'totals': totals, 'sequence': current['sequence']}
+        cache['last'] = {'key': key, 'at': now, 'totals': totals, 'sequence': current['sequence'],
+                         'segment_since': previous['segment_since'] if continuous else now}
     else:
         cache.pop('last', None)
 
