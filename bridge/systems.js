@@ -291,6 +291,11 @@ function cubeAction(cmd){
  const im=single('DG.Item.Manager.ItemManager'),cube=call(im,'get_Cube');
  const approved=approvedMaterials(im,cmd.allowed);
  if(!approved)return {status:'stale',reason:'protected_or_missing_material'};
+ const limits=cmd.materialCounts;
+ if(limits!==undefined&&(!limits||typeof limits!=='object'||Array.isArray(limits)||
+   Object.keys(limits).length!==cmd.allowed.length||cmd.allowed.some(uid=>!Number.isInteger(limits[uid])||limits[uid]<=0)||
+   !Number.isInteger(cmd.batchSize)||cmd.batchSize<=0||cmd.batchSize!==Object.values(limits).reduce((n,count)=>n+count,0)||
+   approved.some(item=>limits[call(item,'get_Uid')]>call(item,'get_Count'))))return {status:'stale',reason:'material_quantity_changed'};
  if(!call(cube,'get_IsEmpty')||call(call(im,'get_Input'),'get_IsHolding'))return {status:'waiting',reason:'user_item_operation'};
  if(call(single('DG.UI.PopupLayoutHandler'),'get_AnyPopupOpen'))return {status:'waiting',reason:'user_popup_open'};
  const view=sceneObject(cmd.kind==='combine'?'DG.UI.Popup.CubeCombineView':'DG.UI.Popup.CubeDecomposeView');
@@ -312,12 +317,19 @@ function cubeAction(cmd){
   // Decompose has no tier dropdown in the native view; an empty options list is valid.
   call(view,'RebuildRules');step='reserve';
   for(const item of approved){
-   for(let n=0;n<32&&call(cube,'CanReserveMore',[ref(item)]);n++)if(!call(im,'TryMoveToCube',[ref(item)]))break;
+    const limit=limits?limits[call(item,'get_Uid')]:32;
+    for(let n=0;n<limit&&call(cube,'CanReserveMore',[ref(item)]);n++)if(!call(im,'TryMoveToCube',[ref(item)]))break;
   }
   const materials=list(call(cube,'get_Has')).filter(p=>p&&!p.isNull());selected=materials.map(itemInfo);
   // Check the native reservation against the exact approved materials before consumption.
   if(!materials.length)return {status:'waiting',reason:'native_material_not_reserved'};
   if(materials.some(p=>protectedItem(im,p))||selected.some(p=>!cmd.allowed.includes(p.uid)||p.grade>cmd.maxGrade))return {status:'waiting',reason:'autofill_contains_protected_material'};
+   if(limits){
+    const counts={};for(const item of selected)counts[item.uid]=(counts[item.uid]||0)+1;
+    if(selected.length!==cmd.batchSize||cmd.allowed.some(uid=>counts[uid]!==limits[uid]))return {status:'waiting',reason:'material_quantity_changed'};
+    const categories={1:0,2:0,4:1,16:2,8:3};
+    if(selected.some(p=>cmd.kind==='combine'?(categories[p.kind]!==cmd.category||p.tier!==(cmd.materialTier??cmd.tier)||p.grade!==cmd.maxGrade):![1,2].includes(p.kind)))return {status:'stale',reason:'material_recipe_changed'};
+   }
   if(!call(view,'get_CanExecute'))return {status:'waiting',reason:'native_recipe_not_ready'};
   step='execute';submitted=true;
   ok=call(view,'TryExecute');

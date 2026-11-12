@@ -19,6 +19,28 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class LoopbackTests(unittest.TestCase):
+    def test_explicit_system_preference_uses_system_socket_first(self):
+        from unittest.mock import Mock
+        sock=Mock();connection=_Connection('127.0.0.1',timeout=4,prefer_native=False)
+        with patch('dps_assistant.loopback._make_socket',return_value=(sock,'system')) as make:
+            connection.connect()
+        make.assert_called_once_with(False)
+        sock.connect.assert_called_once_with(('127.0.0.1',80))
+        self.assertEqual(sock.settimeout.call_args.args,(4,))
+
+    def test_failover_shares_connect_budget_and_restores_full_read_timeout(self):
+        from unittest.mock import Mock,call
+        failed,working=Mock(),Mock();failed.connect.side_effect=TimeoutError('provider_changed')
+        connection=_Connection('127.0.0.1',timeout=4)
+        with patch('dps_assistant.loopback._make_socket',side_effect=[(failed,'native'),(working,'system')]) as make, \
+             patch('dps_assistant.loopback.time.monotonic',side_effect=[100,100,102]):
+            connection.connect()
+        self.assertEqual(make.call_args_list,[call(True),call(False)])
+        failed.close.assert_called_once()
+        self.assertEqual(failed.settimeout.call_args_list,[call(2)])
+        self.assertEqual(working.settimeout.call_args_list,[call(2),call(4)])
+        self.assertIs(connection.sock,working)
+
     def test_http_roundtrip_uses_real_native_loopback(self):
         server = LoopbackHTTPServer(('127.0.0.1', 0), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -98,6 +120,21 @@ class LoopbackTests(unittest.TestCase):
         connection = _Connection('127.0.0.1'); connection.set_tunnel('example.invalid')
         with self.assertRaisesRegex(ValueError, 'loopback_address_required'):
             connection.connect()
+
+    def test_loopback_bypasses_environment_and_system_proxy_with_no_bypass_rules(self):
+        server = LoopbackHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            proxies={'http':'http://127.0.0.1:1','https':'http://127.0.0.1:1','all':'socks5://127.0.0.1:1'}
+            with patch.dict(os.environ, {'HTTP_PROXY':proxies['http'],'HTTPS_PROXY':proxies['https'],
+                                         'ALL_PROXY':proxies['all'],'NO_PROXY':'','no_proxy':''}), \
+                 patch('urllib.request.getproxies', return_value=proxies), \
+                 patch('urllib.request.proxy_bypass', return_value=False):
+                with loopback_opener().open('http://127.0.0.1:'+str(server.server_port)+'/health', timeout=2) as response:
+                    self.assertEqual(response.read(), b'{"ok":true}')
+        finally:
+            server.shutdown();server.server_close();thread.join(3)
 
 
 if __name__ == '__main__':

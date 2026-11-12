@@ -2,9 +2,10 @@ function bridgeStrategy(input={}){
  input=input&&typeof input==='object'?input:{};
  const out={},numbers={farm_candidate_count:[5,1,20],farm_level_offset:[1,1,20],inventory_pressure_percent:[80,40,100],recycle_batch:[12,1,12],recycle_normal_tier_gap:[1,1,10],recycle_rare_tier_gap:[2,1,10],skill_point_reserve:[0,0,100],equipment_min_gain_percent:[0,0,100]};
  for(const [key,[fallback,min,max]] of Object.entries(numbers))out[key]=typeof input[key]==='number'&&Number.isFinite(input[key])&&input[key]>=min&&input[key]<=max&&(key==='equipment_min_gain_percent'||Number.isInteger(input[key]))?input[key]:fallback;
- for(const key of ['recommended_actives','allow_active_refund','recycle_pressure_cleanup'])out[key]=typeof input[key]==='boolean'?input[key]:true;
+ for(const key of ['recommended_actives','allow_active_refund','recycle_pressure_cleanup','preserve_open_panels'])out[key]=typeof input[key]==='boolean'?input[key]:true;
  out.rune_priority=['growth','balanced','combat'].includes(input.rune_priority)?input.rune_priority:'growth';
- out.pet_mode=['auto','growth','combat','keep'].includes(input.pet_mode)?input.pet_mode:'auto';return out;
+  out.pet_mode=['auto','growth','combat','keep'].includes(input.pet_mode)?input.pet_mode:'auto';
+  out.modules=Object.fromEntries(['combine','decompose','forge','refine','storage'].map(key=>[key,input.modules?.[key]!==false]));return out;
 }
 function runePriorityBonus(header,mode){
  const combat=['BaseAttackPoint','NormalAttack','HealthPoint','Defense','AttackSpeed','Skill','DamageReduction','SkillHaste'].includes(header);
@@ -28,6 +29,11 @@ function materialBatch(entries,count){
   if(remaining<=0)break;result.push(e);remaining-=e.info.count;
  }return remaining<=0?result:[];
 }
+function materialQuantities(entries,count){
+ const quantities={};let remaining=count;
+ for(const e of entries){const n=Math.min(e.info.count,remaining);if(n>0){quantities[e.info.uid]=n;remaining-=n;}}
+ return quantities;
+}
 function fusionPlans(entries,recipes,cubeLevel){
  const groups=new Map();
  for(const e of entries){
@@ -37,7 +43,7 @@ function fusionPlans(entries,recipes,cubeLevel){
  }
  return [...groups.values()].flatMap(g=>{
   const fusion=({0:0,1:1,2:3,3:4})[g.category];
-  const recipe=recipes.find(r=>r.CraftType===0&&r.FusionType===fusion&&r.Grade===g.grade&&r.MinTier<=g.tier&&r.MaxTier>=g.tier&&r.RequireCubeLevel<=cubeLevel&&r.FusionCount>0);
+  const recipe=recipes.find(r=>r.CraftType===0&&r.FusionType===fusion&&r.Grade===g.grade&&r.MinTier<=g.tier&&r.MaxTier>=g.tier&&(g.category===0||r.MinTier===g.tier)&&r.RequireCubeLevel<=cubeLevel&&r.FusionCount>0);
   if(!recipe)return [];const batch=materialBatch(g.entries,recipe.FusionCount);return batch.length?[{...g,entries:batch,recipe}]:[];
  }).sort((a,b)=>b.entries.filter(e=>e.place==='inventory').length-a.entries.filter(e=>e.place==='inventory').length);
 }
@@ -80,6 +86,7 @@ function forgeNeed(im,characters,part,tier){
  }return best;
 }
 function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
+ const enabled={combine:true,decompose:true,forge:true,refine:true,storage:true,...options.modules};
  const all=containerEntries(im).map(e=>({...e,info:itemInfo(e.item),consumable:!protectedItem(im,e.item)}));
  const safe=all.filter(e=>e.consumable),movable=all.filter(e=>canMoveStoredItem(im,e.item)),held=safe.filter(e=>e.place==='inventory'),catalog=catalogue(dm);
  const stamp=keyHash(all.map(e=>e.info.uid+':'+e.info.count+':'+e.place).join('|'));
@@ -95,61 +102,64 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const cubeLevel=call(call(im,'get_Cube'),'get_Level');
  const candidates=safe.filter(e=>!needed.has(e.info.uid));
  const needItems=new Set(),readyItems=new Set(),recalls=[],free=s.inventory.capacity-s.inventory.count;
+ const accessible=candidates.filter(e=>e.place==='inventory'||enabled.storage);let workshopReady=false;
  function recall(entries,reason,priority){
   for(const e of entries)needItems.add(e.info.uid);
   const item=entries.find(e=>e.place==='storage');
-  if(item)recalls.push({entries,priority});
-  if(item&&free>0)add('withdraw','withdraw:'+item.info.uid+':'+stamp,'取用仓库物品 · '+reason,priority,{uid:item.info.uid});
- }
- const combineGroups=fusionPlans(candidates,catalog.recipes,cubeLevel);
- for(const plan of combineGroups)for(const e of plan.entries)needItems.add(e.info.uid);
- // Keep all ready recipes schedulable; one equipment batch must not hide warehouse gems.
- const tasks=fusionTasks(combineGroups,free);
- s.combining={groups:tasks.length,ready:tasks.filter(t=>t.ready).length,warehousePending:tasks.filter(t=>!t.ready).length,needSpace:free<=0&&tasks.some(t=>!t.ready),
-  warehouseMaterials:safe.filter(e=>e.place==='storage'&&[8,16].includes(e.info.kind)).reduce((n,e)=>n+e.info.count,0)};
- for(const {group,current,ready} of tasks){
-  if(ready)current.forEach(e=>readyItems.add(e.info.uid));
-  if(ready)add('combine','combine:'+group.recipe.ID+':'+current.map(e=>e.info.uid+':'+e.info.count).join(','),'合成闲置材料并释放背包',s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100?104:84,{recipe:group.recipe.ID,category:group.category,tier:group.tier,maxGrade:group.grade,allowed:current.map(e=>e.info.uid)});
-  else recall(group.entries,'合成配方',103);
+   if(item&&enabled.storage)recalls.push({entries,priority});
+   if(item&&free>0&&enabled.storage)add('withdraw','withdraw:'+item.info.uid+':'+stamp,'取用仓库物品 · '+reason,priority,{uid:item.info.uid});
  }
  const tier=tierForLevel(Math.max(1,...s.characters.map(c=>c.level)),catalog.tiers);
  const retireTier=tierForLevel(Math.min(...s.characters.map(c=>c.level)),catalog.tiers);
- const forge=catalog.recipes.filter(r=>r.CraftType===1&&r.RequireCubeLevel<=cubeLevel&&r.MinTier<=tier&&r.MaterialID.every((id,i)=>id>0&&safe.filter(e=>e.info.id===id).reduce((n,e)=>n+e.info.count,0)>=r.MaterialCount[i])).map(r=>({...r,need:forgeNeed(im,s.characters,r.CraftPart,Math.min(tier,r.MaxTier))})).filter(r=>r.need>0).sort((a,b)=>b.need-a.need||b.MinTier-a.MinTier||a.ID-b.ID)[0];
+ const forge=enabled.forge&&catalog.recipes.filter(r=>r.CraftType===1&&r.RequireCubeLevel<=cubeLevel&&r.MinTier<=tier&&r.MaterialID.every((id,i)=>id>0&&accessible.filter(e=>e.info.id===id).reduce((n,e)=>n+e.info.count,0)>=r.MaterialCount[i])).map(r=>({...r,need:forgeNeed(im,s.characters,r.CraftPart,Math.min(tier,r.MaxTier))})).filter(r=>r.need>0).sort((a,b)=>b.need-a.need||b.MinTier-a.MinTier||a.ID-b.ID)[0];
  if(forge){
-  const materials=forge.MaterialID.flatMap((id,i)=>materialBatch(safe.filter(e=>e.info.id===id),forge.MaterialCount[i]));
+   const materials=forge.MaterialID.flatMap((id,i)=>materialBatch(accessible.filter(e=>e.info.id===id),forge.MaterialCount[i]));
   for(const e of materials)needItems.add(e.info.uid);
   const ready=forge.MaterialID.every((id,i)=>held.filter(e=>e.info.id===id).reduce((n,e)=>n+e.info.count,0)>=forge.MaterialCount[i]);
-  if(ready)materials.forEach(e=>readyItems.add(e.info.uid));
+   if(ready){workshopReady=true;materials.forEach(e=>readyItems.add(e.info.uid));}
   // Native tier options select recipe bands, not the maximum output tier of a recipe.
   if(ready)add('forge','forge:'+forge.ID+':'+forge.MinTier+':'+materials.map(e=>e.info.uid+':'+e.info.count).join(','),'锻造可用配方范围内的成长装备',85,{recipe:forge.ID,part:forge.CraftPart,tier:forge.MinTier,allowed:materials.filter(e=>e.place==='inventory').map(e=>e.info.uid)});
   else recall(materials,'锻造材料',92);
  }
- const attachments=safe.filter(e=>e.info.kind===16);
- for(const c of s.characters){
+ const attachments=accessible.filter(e=>e.info.kind===16&&!needItems.has(e.info.uid));
+ for(const c of enabled.refine?s.characters:[]){
   const equipped=list(call(call(im,'GetEquipment',[c.id]),'get_Has')).filter(p=>p&&!isTradable(p)&&!call(p,'get_IsLocked'));
-  const target=equipped.find(p=>attachments.some(e=>hasAttachmentSpace(im,p,e.item)));
+   const target=equipped.find(p=>attachments.some(e=>!needItems.has(e.info.uid)&&hasAttachmentSpace(im,p,e.item)));
   if(!target)continue;
-  const materials=attachments.filter(e=>hasAttachmentSpace(im,target,e.item)).sort((a,b)=>b.info.grade-a.info.grade||b.info.tier-a.info.tier).slice(0,1),current=materials.filter(e=>e.place==='inventory');
+   const materials=attachments.filter(e=>!needItems.has(e.info.uid)&&hasAttachmentSpace(im,target,e.item)).sort((a,b)=>b.info.grade-a.info.grade||b.info.tier-a.info.tier).slice(0,1),current=materials.filter(e=>e.place==='inventory');
   for(const e of materials)needItems.add(e.info.uid);
-  current.forEach(e=>readyItems.add(e.info.uid));
+   if(current.length)workshopReady=true;current.forEach(e=>readyItems.add(e.info.uid));
   if(current.length)add('refine','refine:'+call(target,'get_Uid')+':'+list(call(target,'get_Sockets')).length+':'+stamp,'为角色 '+c.id+' 镶嵌可用材料',90,{id:c.id,uid:call(target,'get_Uid'),allowed:current.map(e=>e.info.uid)});
   else recall(materials,'装备镶嵌',91);
  }
+ // Allocate useful upgrades first. A UID belongs to one enabled workshop recipe per scan.
+ const combineGroups=enabled.combine?fusionPlans(candidates.filter(e=>!needItems.has(e.info.uid)&&(e.place==='inventory'||enabled.storage)),catalog.recipes,cubeLevel):[];
+ for(const plan of combineGroups)for(const e of plan.entries)needItems.add(e.info.uid);
+ const tasks=fusionTasks(combineGroups,free);
+ s.combining={groups:tasks.length,ready:tasks.filter(t=>t.ready).length,warehousePending:tasks.filter(t=>!t.ready).length,needSpace:free<=0&&tasks.some(t=>!t.ready),
+   warehouseMaterials:accessible.filter(e=>e.place==='storage'&&[8,16].includes(e.info.kind)).reduce((n,e)=>n+e.info.count,0)};
+ for(const {group,current,ready} of tasks){
+   if(ready)current.forEach(e=>readyItems.add(e.info.uid));
+   if(ready)add('combine','combine:'+group.recipe.ID+':'+current.map(e=>e.info.uid+':'+e.info.count).join(','),'合成闲置材料并释放背包',s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100?104:84,
+    {recipe:group.recipe.ID,category:group.category,tier:group.recipe.MinTier,materialTier:group.tier,maxGrade:group.grade,allowed:current.map(e=>e.info.uid),materialCounts:materialQuantities(current,group.recipe.FusionCount),batchSize:group.recipe.FusionCount});
+   else recall(group.entries,'合成配方',103);
+ }
  const pressure=s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100,full=free<=0,storageFull=call(storage,'get_IsFull');
- const obsolete=retirementPlans(candidates,new Set([...needed,...needItems]),retireTier,options,pressure||storageFull);
+ const obsolete=enabled.decompose?retirementPlans(candidates.filter(e=>e.place==='inventory'||enabled.storage),new Set([...needed,...needItems]),retireTier,options,pressure||storageFull):[];
  const reclaim=obsolete.filter(e=>e.place==='inventory').slice(0,options.recycle_batch);
  s.recycling={pressureCleanup:options.recycle_pressure_cleanup&&(pressure||storageFull),reservedEquipment:needed.size,obsolete:obsolete.length,inventory:obsolete.filter(e=>e.place==='inventory').length,storage:obsolete.filter(e=>e.place==='storage').length,planned:reclaim.length,policy:'three_character_upgrades_then_fusion_then_retirement'};
- if(reclaim.length)add('decompose','decompose:'+reclaim.map(e=>e.info.uid).join(','),'分解闲置或淘汰装备，回收材料与灵魂',102,{tier:Math.min(...reclaim.map(e=>e.info.tier)),maxGrade:Math.max(...reclaim.map(e=>e.info.grade)),allowed:reclaim.map(e=>e.info.uid)});
+ if(reclaim.length){const materialCounts=materialQuantities(reclaim,options.recycle_batch);
+  add('decompose','decompose:'+reclaim.map(e=>e.info.uid+':'+materialCounts[e.info.uid]).join(','),'分解闲置或淘汰装备，回收材料与灵魂',102,{tier:Math.min(...reclaim.map(e=>e.info.tier)),maxGrade:Math.max(...reclaim.map(e=>e.info.grade)),allowed:reclaim.map(e=>e.info.uid).filter(uid=>materialCounts[uid]>0),materialCounts,batchSize:Object.values(materialCounts).reduce((n,count)=>n+count,0)});}
  else if(obsolete.length)recall(obsolete.slice(0,1),'淘汰装备回收',102);
  const retiring=new Set(obsolete.map(e=>e.info.uid)),equipping=new Set(equipment.map(p=>p.uid)),movableHeld=movable.filter(e=>e.place==='inventory');
- const consumeReady=tasks.some(t=>t.ready)||reclaim.length>0;
+ const consumeReady=workshopReady||tasks.some(t=>t.ready)||reclaim.length>0;
  let stash=null,swap=null;
- if(pressure&&!storageFull){
+ if(enabled.storage&&pressure&&!storageFull){
   stash=stagingDeposit(movableHeld,needed,needItems,retiring,full,recalls,equipping,readyItems);
   if(stash)add('deposit','deposit:'+stash.info.uid+':'+stamp,full?'背包已满，临时存仓以接续取料和开箱':'自动存仓，预留战利品空间',full&&recalls.length&&!consumeReady?105:101,{uid:stash.info.uid});
  }
  // A native slot exchange can bring recipe materials in even when both containers are full.
- if(full&&storageFull&&!consumeReady){
+ if(enabled.storage&&full&&storageFull&&!consumeReady){
   const target=[...recalls].sort((a,b)=>b.priority-a.priority)[0],stored=target?.entries.find(e=>e.place==='storage');
   swap=stored&&stagingDeposit(movableHeld,needed,needItems,retiring,true,[target],equipping,readyItems);
   if(swap)add('withdraw','withdraw:'+stored.info.uid+':swap:'+swap.info.uid+':'+stamp,'背包与仓库已满，交换闲置物品以取用材料',target.priority,{uid:stored.info.uid,swapUid:swap.info.uid});
@@ -161,9 +171,9 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
 }
 function openPopups(){return list(invoke(external('UnityEngine','Resources'),nil,'FindObjectsOfTypeAll',[ref(typeObject(classType(klass('DG.UI.OutGamePopup'))))],'System.Type')).filter(p=>call(call(p,'get_gameObject'),'get_activeInHierarchy'));}
 const cleanupPopupTypes=new Set(['DG.UI.Popup.HeroPopup','DG.UI.Popup.HeroInfoPopup','DG.UI.Popup.StoragePopup','DG.UI.Popup.CubePopup','DG.UI.Rune.RuneTreePopup']);
-function popupPolicy(open){
+function popupPolicy(open,preserveOpenPanels=true){
  const known=new Set([...cleanupPopupTypes,'DG.UI.Popup.MailPopup','DG.UI.Popup.TradePopup','DG.UI.Popup.SteamInventoryPopup','DG.UI.Popup.OfflineRewardPopup']);
- const blocked=open.filter(name=>!known.has(name));
+ const blocked=open.filter(name=>!known.has(name)||preserveOpenPanels&&cleanupPopupTypes.has(name));
  return {blocked,cleanup:blocked.length?null:open.find(name=>cleanupPopupTypes.has(name))||null,offline:!blocked.length&&open.includes('DG.UI.Popup.OfflineRewardPopup')};
 }
 // Stable role templates use native skill types and unlock levels, never combat-time scores.
@@ -211,11 +221,12 @@ function petPreference(ability,factor,farming){
  const combat=/Critical|AttackSpeed|BaseAttackPoint|BossMonster/.test(ability)?3:/Defense|ReviveHaste/.test(ability)?2:1;
  return {group:/OfflineReward/.test(ability)?-1:farming?(growth||1):growth?0:1,value:factor*combat};
 }
-function auxiliaryOpportunities(s,dm,im,add,issues){
+function auxiliaryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const popups=openPopups(),open=popups.map(p=>fullname(A.objectClass(p)));
- const policy=popupPolicy(open);s.automationBlocked=policy.blocked;
+ const policy=popupPolicy(open,options.preserve_open_panels);s.automationBlocked=policy.blocked;
+ s.manualPanelOpen=options.preserve_open_panels&&open.some(n=>cleanupPopupTypes.has(n));
  s.experienceBlocked=open.length>0;
- if(policy.blocked.length)issues.push('确认或未知面板正在等待处理，自动化保留窗口并暂停提交');
+ if(policy.blocked.length)issues.push(s.manualPanelOpen?'手动面板已保留：关闭背包、仓库或成长窗口后自动恢复':'确认或未知面板正在等待处理，自动化保留窗口并暂停提交');
  const trade=open.some(n=>n.endsWith('TradePopup')||n.endsWith('SteamInventoryPopup'));
  s.trading=trade;
  if(trade)issues.push('交易面板正在使用，物品自动化等待面板关闭');

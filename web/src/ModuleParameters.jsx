@@ -13,7 +13,7 @@ const keys={
  storage:['inventory_pressure_percent'],forge:['action_retry_seconds','action_cooldown_seconds'],
  refine:['action_retry_seconds','action_cooldown_seconds'],mail:['action_retry_seconds'],
  tower:['tower_retry_seconds','tower_farm_wait_seconds','tower_require_growth'],
- ui_cleanup:['battle_recovery_wait_seconds','battle_recovery_retry_seconds','stage_stall_wait_seconds','stage_transition_wait_seconds','action_retry_seconds','action_cooldown_seconds'],
+ ui_cleanup:['preserve_open_panels','battle_recovery_wait_seconds','battle_recovery_retry_seconds','stage_stall_wait_seconds','stage_transition_wait_seconds','action_retry_seconds','action_cooldown_seconds'],
 };
 export default function ModuleParameters({module,schema,config,update}){
  const controls=useRef(new Map());

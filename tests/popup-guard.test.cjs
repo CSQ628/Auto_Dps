@@ -9,7 +9,7 @@ function fixture(type,blocked=[],kind='ui_cleanup',detail={}){
  vm.createContext(context);
  vm.runInContext(fs.readFileSync('bridge/planner.js','utf8')+'\n'+fs.readFileSync('bridge/automation.js','utf8')+
   '\nopportunityScan=()=>scan;globalThis.execute=executeAction;',context);
- return {calls,execute:()=>context.execute({...action,account:'1001'})};
+ return {calls,execute:(strategy={preserve_open_panels:false})=>context.execute({...action,account:'1001',strategy})};
 }
 
 test('an active confirmation prevents every native submission',()=>{
@@ -35,4 +35,8 @@ test('settled offline display uses its continuation callback through Hide',()=>{
 test('native submission rechecks crystal permission and changed balance',()=>{
  const f=fixture('ignored',[],'rune',{cost:{goods:202,amount:1},permanent:true});
  assert.equal(f.execute().reason,'budget_changed');assert.deepEqual(f.calls,[]);
+});
+
+test('execution refuses a stale cleanup command when panel preservation is enabled',()=>{
+ const f=fixture('DG.UI.Popup.HeroPopup');assert.equal(f.execute({}).reason,'user_popup_open');assert.deepEqual(f.calls,[]);
 });

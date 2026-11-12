@@ -53,3 +53,15 @@ class DiagnosticTests(unittest.TestCase):
         self.assertTrue(row['combining']['needSpace'])
         self.assertEqual(row['recycling']['obsolete'],2)
         self.assertNotIn('private-',json.dumps(row))
+
+    def test_bridge_startup_and_performance_are_shareable_without_identity_or_raw_error(self):
+        raw={'instances':[{'bridge_health':{'pid':123,'phase':'starting','step':'load','ageSeconds':24,
+            'error':'private-path private-account','transport':{'token':'secret-token'}},
+            'bridge_performance':{'scanMs':40,'lastScanMs':35,'nativeCalls':120,'cacheHits':300,'account':'private-account'},
+            'effective_scan_interval':2}]}
+        row=diagnostics(raw)['instances'][0]
+        self.assertEqual(row['bridge_health'],{'phase':'starting','step':'load','ageSeconds':24})
+        self.assertEqual(row['bridge_performance']['cacheHits'],300)
+        self.assertEqual(row['effective_scan_interval'],2)
+        for secret in ('private-','secret-token','123'):
+            self.assertNotIn(secret,json.dumps(row))

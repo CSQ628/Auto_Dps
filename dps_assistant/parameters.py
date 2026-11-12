@@ -15,6 +15,7 @@ def choice(key,label,default,group,options,hint=''):
                 options=[dict(value=v,label=t) for v,t in options],hint=hint)
 
 PARAMETERS = [
+ switch('preserve_open_panels','保留手动打开的背包等面板',True,'general','开启时保留背包、英雄、仓库、魔方和符文窗口，并暂停助手提交操作；手动关闭窗口后自动恢复。关闭后允许无人值守收起这些窗口。'),
  number('interval','巡检间隔',2.0,'general',1,60,'秒','root',.5,'各实例独立巡检。'),
  switch('auto_launch','自动启动缺失的游戏实例',True,'general','接续主实例与已识别的沙盒实例。','root'),
  number('launch_retry_seconds','游戏启动重试间隔',120,'general',30,3600,'秒'),

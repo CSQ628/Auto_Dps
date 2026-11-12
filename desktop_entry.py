@@ -58,6 +58,7 @@ if __name__=='__main__':
     if '--bridge-host' in sys.argv:
         sys.argv.remove('--bridge-host')
         from tools import bridge_host
+        bridge_host.main()
     else:
         try:main()
         except Exception as error:

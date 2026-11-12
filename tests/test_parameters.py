@@ -14,8 +14,8 @@ class ParameterTests(unittest.TestCase):
     def test_legacy_config_retains_budget_and_gets_every_editable_default(self):
         old = {'soul_reserve': 123, 'modules': {'box': False}, 'strategy': {'pet_mode': 'keep'}}
         config = normalize_config(old)
-        self.assertEqual(len(PARAMETERS), 40)
-        self.assertEqual(len({(p['scope'], p['key']) for p in PARAMETERS}), 40)
+        self.assertEqual(len(PARAMETERS), 41)
+        self.assertEqual(len({(p['scope'], p['key']) for p in PARAMETERS}), 41)
         for spec in PARAMETERS:
             values = config if spec['scope'] == 'root' else config['strategy']
             self.assertIn(spec['key'], values)
@@ -87,7 +87,7 @@ class ParameterTests(unittest.TestCase):
                 first = engine.Engine(start=False)
                 second = None
                 try:
-                    first.update({'interval': 3.5, 'strategy': {'pet_mode': 'keep', 'recycle_batch': 4}})
+                    first.update({'interval': 3.5, 'strategy': {'pet_mode': 'keep', 'recycle_batch': 4, 'preserve_open_panels': False}})
                     disk = (folder/'config.json').read_bytes()
                     with self.assertRaises(ValueError):
                         first.update({'interval': 4, 'strategy': {'recycle_batch': 0}})
@@ -100,8 +100,17 @@ class ParameterTests(unittest.TestCase):
                     second = engine.Engine(start=False)
                     self.assertEqual(second.config, json.loads(disk))
                     self.assertEqual(second.config['strategy']['pet_mode'], 'keep')
-                    self.assertEqual(len(second.public_state()['parameters']['fields']), 40)
+                    self.assertEqual(len(second.public_state()['parameters']['fields']), 41)
                 finally:
                     first.stop()
                     if second:
                         second.stop()
+
+class ManualPanelParameterTests(unittest.TestCase):
+    def test_legacy_default_and_explicit_user_choice(self):
+        self.assertTrue(normalize_config({})['strategy']['preserve_open_panels'])
+        config = apply_patch(normalize_config({}), {'strategy': {'preserve_open_panels': False}})
+        restored = normalize_config(json.loads(json.dumps(config)))
+        self.assertFalse(restored['strategy']['preserve_open_panels'])
+        with self.assertRaises(ValueError):
+            apply_patch(config, {'strategy': {'preserve_open_panels': 'false'}})

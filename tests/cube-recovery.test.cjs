@@ -10,7 +10,7 @@ function fixture(){
  const im={get_Inventory:()=>inventory,get_Cube:()=>cube,get_Input:()=>({get_IsHolding:()=>false}),IsInUse:()=>false,IsEquipped:()=>false,FindRegistrations:()=>[],TryMoveToCube:p=>{selected.push(p);return true;}};
  const c={api:()=>()=>0,list:x=>x,read:(o,n)=>o[n],ref:x=>x,call:(o,n,a=[])=>o[n](...a),single:n=>n==='DG.UI.PopupLayoutHandler'?{get_AnyPopupOpen:()=>false}:n==='DG.Manager.CurrencyManager'?{Get:()=>0}:im};
  vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nsceneObject=n=>n.endsWith("CubePopup")?testPopup:testView;activateCubeView=()=>testPopup;globalThis.run=cubeAction;',c);c.testView=view;c.testPopup=popup;
- return {view,popup,inventory,selected,calls,get include(){return include;},run:()=>c.run({kind:'decompose',tier:2,maxGrade:1,allowed:['old']})};
+ return {view,popup,inventory,selected,calls,get include(){return include;},run:(command={})=>c.run({kind:'decompose',tier:2,maxGrade:1,allowed:['old'],...command})};
 }
 test('decomposition accepts a native view without a tier dropdown',()=>{
  const f=fixture(),r=f.run();assert.equal(r.status,'confirmed');assert.equal(r.consumed[0].count,1);assert.equal(f.include,true);
@@ -32,4 +32,14 @@ test('preparation and execution failures remain distinct even when popup cleanup
 test('empty reservation releases the view and provides the real waiting reason',()=>{
  const f=fixture();f.view.get_CanExecute=()=>false;
  const r=f.run();assert.equal(r.reason,'native_recipe_not_ready');assert.equal(f.selected.length,0);assert.equal(f.inventory.items.length,1);
+});
+
+test('fusion selects the unlocked recipe band and checks the separate material tier',()=>{
+ const f=fixture(),p=f.inventory.items[0];let tier=1;
+ p.get_Config=()=>({Tradable:false,Grade:2,Tier:6});
+ f.view.get_SelectedTier=()=>tier;f.view.SetSelectedTier=value=>{tier=value;};f.view.get_SelectedCategory=()=>0;
+ f.view.SetCategory=()=>{};f.view.RefreshLevelRangeOptions=()=>{};
+ f.view.get_CanExecute=()=>tier===5&&f.selected.length===1;
+ const r=f.run({kind:'combine',tier:5,materialTier:6,category:0,maxGrade:2,materialCounts:{old:1},batchSize:1});
+ assert.equal(r.status,'confirmed');assert.equal(tier,1);assert.ok(f.calls.includes('execute'));
 });

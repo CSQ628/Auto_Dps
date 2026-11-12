@@ -6,6 +6,8 @@ import os
 import socket
 import select
 import threading
+import time
+from functools import partial
 import urllib.request
 
 
@@ -148,29 +150,41 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
 
 
 class _Connection(HTTPConnection):
+    def __init__(self,*args,prefer_native=True,**kwargs):
+        self.prefer_native=prefer_native
+        super().__init__(*args,**kwargs)
     def connect(self):
         if self.host != '127.0.0.1' or self._tunnel_host:
             raise ValueError('loopback_address_required')
-        for preference in (True, False):
+        bounded=isinstance(self.timeout,(int,float))
+        deadline=time.monotonic()+self.timeout if bounded else None
+        for attempt,preference in enumerate((self.prefer_native,not self.prefer_native)):
             self.sock, mode = _make_socket(preference)
             try:
-                if self.timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
-                    self.sock.settimeout(self.timeout)
+                if bounded:
+                    remaining=max(.001,deadline-time.monotonic())
+                    self.sock.settimeout(remaining/2 if attempt==0 else remaining)
+                elif self.timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:self.sock.settimeout(self.timeout)
                 if self.source_address:
                     self.sock.bind(self.source_address)
                 self.sock.connect((self.host, self.port))
+                # The connect budget must not shorten the response read timeout.
+                if self.timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:self.sock.settimeout(self.timeout)
                 return
             except OSError:
                 self.sock.close()
                 self.sock = None
-                if not preference or mode == 'system':
+                if attempt or preference and mode == 'system':
                     raise
 
 
 class _Handler(urllib.request.HTTPHandler):
+    def __init__(self,prefer_native=True):
+        self.prefer_native=prefer_native
+        super().__init__()
     def http_open(self, req):
-        return self.do_open(_Connection, req)
+        return self.do_open(partial(_Connection,prefer_native=self.prefer_native), req)
 
 
-def loopback_opener():
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _Handler())
+def loopback_opener(prefer_native=True):
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _Handler(prefer_native))

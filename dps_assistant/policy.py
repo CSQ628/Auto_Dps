@@ -18,7 +18,7 @@ MODULES={
  'refine':('装备镶嵌','为非交易装备填充可用镶嵌槽，自动筹备材料'),
  'mail':('邮件与离线收益','处理邮件附件与已结算的离线收益面板'),
  'tower':('无限塔挑战','条件满足后挑战塔层，仅使用非交易入场道具'),
- 'ui_cleanup':('无人值守接续','收起普通面板以接续成长，交易面板保持等待'),
+ 'ui_cleanup':('无人值守接续','默认保留手动面板，可设置无人值守收起，交易面板保持等待'),
 }
 
 def module_for(kind):return {'formation':'unlock','pet_equip':'pet_unlock','skill_equip':'active','skill_refund':'active','skill_unequip':'active','deposit':'storage','withdraw':'storage','mail_open':'mail','mail_claim':'mail','mail_close':'mail','offline_close':'mail','tower_return':'progress','battle_recover':'ui_cleanup'}.get(kind,kind)

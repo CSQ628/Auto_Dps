@@ -22,6 +22,11 @@ def diagnostics(state):
         snap = row.get('snapshot') or {}
         instances.append({'instance': len(instances) + 1, 'sandboxed': bool(row.get('box')),
             'status': row.get('status'), 'observation_error': bool(row.get('error')),
+            'bridge_health': {k:v for k,v in (row.get('bridge_health') or {}).items()
+                if k in ('phase','step','ageSeconds')},
+            'bridge_performance': {k:v for k,v in (row.get('bridge_performance') or {}).items()
+                if k in ('scanMs','lastScanMs','nativeCalls','cacheHits') and isinstance(v,(int,float))},
+            'effective_scan_interval': row.get('effective_scan_interval'),
             'loaded': snap.get('loaded'), 'stage': snap.get('stage'),
             'snapshot_age_seconds': max(0,state.get('now',0)-snap['at']/1000) if isinstance(snap.get('at'),(int,float)) else None,
             'battle_result': {k: (snap.get('combat',{}).get('current') or {}).get(k)

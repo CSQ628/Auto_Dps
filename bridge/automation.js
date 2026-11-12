@@ -50,6 +50,11 @@ function combatSnapshot(s){
 }
 
 function opportunityScan(input={}){
+ const scan=typeof withReadOnlyScan==='function'?withReadOnlyScan(()=>opportunityScanFresh(input)):opportunityScanFresh(input);
+ if(typeof lastScanPerformance!=='undefined'&&lastScanPerformance)scan.snapshot.bridgePerformance={...lastScanPerformance};
+ return scan;
+}
+function opportunityScanFresh(input={}){
  const options=bridgeStrategy(input);
  const s=snapshot();s.squad=list(s.squad);s.combat=combatSnapshot(s);
  const dm=single(names.data),im=single(names.items),cm=single(names.chars),pm=single(names.pets),rp=runesProvider(),drop=single(names.drop);
@@ -134,7 +139,7 @@ function opportunityScan(input={}){
  s.characters=s.characters.map(c=>({...c,equipment:equipped(im,c.id),equipmentPlanning:s.equipmentPlanning.find(p=>p.id===c.id)}));
  const squadOrder=new Map(s.squad.map((id,index)=>[id,index]));
  s.characters.sort((a,b)=>(squadOrder.get(a.id)??s.squad.length)-(squadOrder.get(b.id)??s.squad.length)||a.id-b.id);
- auxiliaryOpportunities(s,dm,im,add,issues);
+ auxiliaryOpportunities(s,dm,im,add,issues,options);
  progressionOpportunities(s,dm,im,add,issues,options);
  for(const action of battleRecoveryPlans(s))add(action.kind,action.key,action.label,action.priority,action);
  if(s.inventory.count>=s.inventory.capacity)issues.push('背包已满：优先合成、扩容与回收后继续开箱');
@@ -166,7 +171,7 @@ function executeAction(cmd){
  const dm=single(names.data),im=single(names.items);let ok=false,before,after;
  switch(action.kind){
  case 'offline_close':{const p=sceneObject('DG.UI.Popup.OfflineRewardPopup');if(!p||read(p,'_opening'))return {status:'waiting',reason:'offline_display_not_ready'};call(p,'Hide');return {status:call(call(p,'get_gameObject'),'get_activeInHierarchy')?'pending':'confirmed',source:'settled_offline_display'};}
- case 'ui_cleanup':{if(!cleanupPopupTypes.has(action.type))return {status:'waiting',reason:'popup_not_approved_for_cleanup'};const p=sceneObject(action.type);if(p)call(p,'OnClickClose');return {status:p?'confirmed':'stale',type:action.type};}
+ case 'ui_cleanup':{if(options.preserve_open_panels)return {status:'waiting',reason:'user_popup_open'};if(!cleanupPopupTypes.has(action.type))return {status:'waiting',reason:'popup_not_approved_for_cleanup'};const p=sceneObject(action.type);if(p)call(p,'OnClickClose');return {status:p?'confirmed':'stale',type:action.type};}
  case 'mail_open':{const p=sceneObject('DG.UI.Popup.MailPopup');call(p,'Show');return {status:'confirmed',unread:scan.snapshot.mail.unread};}
  case 'mail_claim':{const p=sceneObject('DG.UI.Popup.MailPopup');call(p,'OnClickReceiveAll');return {status:'pending',ids:action.ids};}
  case 'mail_close':{call(sceneObject('DG.UI.Popup.MailPopup'),'OnClickClose');return {status:'confirmed'};}
@@ -255,4 +260,4 @@ function executeAction(cmd){
  }
  return jsonSafe({status:ok&&after?'confirmed':ok?'pending':'rejected',action,after});
 }
-Object.assign(rpc.exports,{opportunities(options){return onMain(()=>opportunityScan(options));},execute(cmd){return onMain(()=>executeAction(cmd));}});
+Object.assign(rpc.exports,{opportunities(options){return onMain(()=>opportunityScan(options));},execute(cmd){return onMain(()=>{const result=executeAction(cmd);if(typeof lastScanPerformance!=='undefined'&&lastScanPerformance)result.bridgePerformance={...lastScanPerformance};return result;});}});

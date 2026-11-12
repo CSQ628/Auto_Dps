@@ -1,10 +1,23 @@
 // Support wording and author-provided assets adapted from IdleLegions-AutoAbyss.
 // Reimplemented with Fluent UI for Auto_Dps. See THIRD_PARTY_NOTICES.md.
 import React,{useEffect,useState} from 'react';
-import {Button,Dialog,DialogSurface,DialogBody,DialogTitle,DialogContent,DialogActions} from '@fluentui/react-components';
+import {Button,Dialog,DialogSurface,DialogBody,DialogTitle,DialogContent,DialogActions,Popover,PopoverTrigger,PopoverSurface} from '@fluentui/react-components';
 import {ArrowUpRight,Code,DownloadSimple,Heart} from '@phosphor-icons/react';
 
 const repository='https://github.com/weixiao030/Auto_Dps';
+
+function AppreciationDialog({open,onOpenChange}){
+ return <Dialog open={open} onOpenChange={(_,d)=>onOpenChange(d.open)}><DialogSurface className="appreciation-dialog"><DialogBody><DialogTitle>作者赞赏码</DialogTitle><DialogContent><p>自愿支持，所有功能均可免费使用。</p><img src="/appreciation-original.jpg" alt="作者提供的完整微信赞赏码" width="1210" height="1210"/></DialogContent><DialogActions><a href="/appreciation-original.jpg" target="_blank" rel="noopener noreferrer">查看原图</a><Button onClick={()=>onOpenChange(false)}>关闭</Button></DialogActions></DialogBody></DialogSurface></Dialog>;
+}
+
+export function SidebarSupport(){
+ const [expanded,setExpanded]=useState(false),[previewOpen,setPreviewOpen]=useState(false),[imageError,setImageError]=useState(false);
+ function openOriginal(){setPreviewOpen(false);setExpanded(true);}
+ return <div className="sidebar-support"><Popover open={previewOpen&&!expanded} onOpenChange={(_,d)=>setPreviewOpen(d.open)} openOnHover unstable_disableAutoFocus positioning={{position:'after',align:'bottom',offset:12,fallbackPositions:['below','above'],overflowBoundaryPadding:16}}>
+  <PopoverTrigger disableButtonEnhancement><button type="button" className="sidebar-support-trigger" aria-label="赞赏作者，点击查看原图" aria-haspopup="dialog" onClick={openOriginal}>{imageError?<Heart size={24}/>:<img src="/appreciation-code.webp" alt="" width="36" height="36" onError={()=>setImageError(true)}/>}</button></PopoverTrigger>
+  <PopoverSurface className="sidebar-support-preview"><button type="button" onClick={openOriginal} aria-label="查看赞赏码原图"><img src="/appreciation-code.webp" alt="作者微信赞赏码预览" width="220" height="220"/></button><p>自愿赞赏 · 点击查看原图</p></PopoverSurface>
+ </Popover><AppreciationDialog open={expanded} onOpenChange={setExpanded}/></div>;
+}
 
 export function FirstRunNotice({accepted,csrf,onAccepted}){
  const [remaining,setRemaining]=useState(3),[saving,setSaving]=useState(false),[error,setError]=useState('');
@@ -37,6 +50,6 @@ export function ProjectSupport(){
   <figure className="appreciation"><div className="appreciation-heading"><Heart size={18}/><h3>给作者一点鼓励</h3></div>
    {imageError?<p role="alert">赞赏码加载失败，请重新打开控制台。</p>:<button type="button" className="appreciation-preview" aria-label="放大赞赏码" onClick={()=>setExpanded(true)}><img src="/appreciation-code.webp" alt="作者提供的微信赞赏码，点击可查看原图" width="600" height="600" onError={()=>setImageError(true)}/></button>}
    <figcaption><p>无论是否打赏都不影响使用，全部免费,感谢板板支持</p><a href="/appreciation-original.jpg" download="DPS远征助手赞赏码.jpg"><DownloadSimple size={16}/>保存赞赏码</a></figcaption>
-  </figure><Dialog open={expanded} onOpenChange={(_,d)=>setExpanded(d.open)}><DialogSurface className="appreciation-dialog"><DialogBody><DialogTitle>作者赞赏码</DialogTitle><DialogContent><p>自愿支持，所有功能均可免费使用。</p><img src="/appreciation-original.jpg" alt="作者提供的完整微信赞赏码" width="1210" height="1210"/></DialogContent><DialogActions><Button onClick={()=>setExpanded(false)}>关闭</Button></DialogActions></DialogBody></DialogSurface></Dialog>
+  </figure><AppreciationDialog open={expanded} onOpenChange={setExpanded}/>
  </section>;
 }

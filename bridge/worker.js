@@ -1,5 +1,17 @@
 // Runs after il2cpp.js inside the same Frida script. All game calls run on BattleManager.Update.
-const methodCache=new Map(), fieldCache=new Map();
+// Cache immutable observations only inside a synchronous scan; mutations always read fresh state.
+let scanReads=null,scanStats=null,lastScanPerformance=null;
+function withReadOnlyScan(fn){
+ if(scanReads!==null)return fn();
+ const started=Date.now();scanReads=new Map();scanStats={nativeCalls:0,cacheHits:0};
+ try{return fn();}finally{lastScanPerformance={...scanStats,scanMs:Math.max(0,Date.now()-started)};scanReads=null;scanStats=null;}
+}
+function cachedScanRead(key,fn){
+ if(scanReads===null||key===null)return fn();
+ if(scanReads.has(key)){scanStats.cacheHits++;return scanReads.get(key);}
+ const value=fn();scanReads.set(key,value);return value;
+}
+const methodCache=new Map(), fieldCache=new Map(), methodLayouts=new Map(), fieldLayouts=new Map();
 function method(k,name,n,signature) {
   const key=k+':'+name+':'+n+':'+(signature||''); if(methodCache.has(key))return methodCache.get(key);
   const own=iter(A.methods,k).filter(m=>utf(A.methodName(m))===name && A.paramCount(m)===n && (!signature || Array.from({length:n},(_,i)=>tn(A.param(m,i))).join(',')===signature));
@@ -45,23 +57,31 @@ function arg(v,t){
   return p;
 }
 function invoke(k,obj,name,args=[],signature=null){
+ const key=scanReads!==null&&(/^(get_|Is|Can)/.test(name)||['GetEquipment','GetAllCharacters','GetActiveSkills','GetPassiveSkills','GetEquippedActives','GetActiveLearnedLevel','GetPassiveLearnedLevel','GetTotalExpToReach','GetExpToNext','GetSquadSlots','FindObjectsOfTypeAll'].includes(name))?'getter:'+k+':'+obj+':'+name+':'+JSON.stringify(args)+':'+signature:null;
+ return cachedScanRead(key,()=>invokeFresh(k,obj,name,args,signature));
+}
+function invokeFresh(k,obj,name,args=[],signature=null){
+ if(scanStats)scanStats.nativeCalls++;
   const m=method(k,name,args.length,signature),params=Memory.alloc(Math.max(PS,args.length*PS));
-  const keep=[];args.forEach((v,i)=>{const p=arg(v,tn(A.param(m,i)));keep.push(p);params.add(i*PS).writePointer(p);});
+  const key=m.toString();let layout=methodLayouts.get(key);
+  if(!layout){layout={args:args.map((_,i)=>tn(A.param(m,i))),result:tn(A.returnType(m)),isEnum:classIsEnum(classFromType(A.returnType(m)))};methodLayouts.set(key,layout);}
+  const keep=[];args.forEach((v,i)=>{const p=arg(v,layout.args[i]);keep.push(p);params.add(i*PS).writePointer(p);});
   const exc=Memory.alloc(PS);exc.writePointer(nil);
   const result=A.invoke(m,obj||nil,args.length?params:nil,exc);
   if(!exc.readPointer().isNull())throw Error('managed_exception:'+fullname(k)+'.'+name+':'+fullname(A.objectClass(exc.readPointer())));
-  const ret=tn(A.returnType(m));
+  const ret=layout.result;
   if(result.isNull())return null;
   if(ret==='System.String')return managedString(result);
   if(ret.startsWith('System.')){const value=primitive(A.unbox(result),ret);if(value!==undefined)return value;}
   // Known enum return values are boxed Int32.
-  if(api('class_is_enum','bool',['pointer'])(api('class_from_type','pointer',['pointer'])(A.returnType(m))))return A.unbox(result).readS32();
+  if(layout.isEnum)return A.unbox(result).readS32();
   return result;
 }
 function call(obj,name,args=[],sig=null){if(!obj||obj.isNull())throw Error('object_not_ready:'+name);return invoke(A.objectClass(obj),obj,name,args,sig);}
 function stat(n,name,args=[],sig=null){return invoke(klass(n),nil,name,args,sig);}
 function ref(p){return {$ptr:p.toString()};}
-function single(n){
+function single(n){return cachedScanRead('singleton:'+n,()=>singleFresh(n));}
+function singleFresh(n){
   let k=klass(n);
   while(!k.isNull()){
     for(const f of iter(A.fields,k)){
@@ -75,8 +95,19 @@ function single(n){
   throw Error('singleton_not_ready:'+n);
 }
 const classFromType=api('class_from_type','pointer',['pointer']),classIsEnum=api('class_is_enum','bool',['pointer']);
-function read(obj,name){const f=field(A.objectClass(obj),name),ft=A.fieldType(f),t=tn(ft),p=obj.add(A.fieldOffset(f));const v=primitive(p,t);if(v!==undefined)return v;if(t==='System.String')return managedString(p.readPointer());if(classIsEnum(classFromType(ft)))return p.readS32();return p.readPointer();}
+function read(obj,name){return cachedScanRead(scanReads===null?null:'field:'+obj+':'+name,()=>readFresh(obj,name));}
+function readFresh(obj,name){
+ const f=field(A.objectClass(obj),name),key=f.toString();let layout=fieldLayouts.get(key);
+ if(!layout){const ft=A.fieldType(f);layout={type:tn(ft),offset:A.fieldOffset(f),isEnum:classIsEnum(classFromType(ft))};fieldLayouts.set(key,layout);}
+ const p=obj.add(layout.offset),v=primitive(p,layout.type);if(v!==undefined)return v;
+ if(layout.type==='System.String')return managedString(p.readPointer());if(layout.isEnum)return p.readS32();return p.readPointer();
+}
 function list(p,limit=12000){
+ const values=cachedScanRead(scanReads===null?null:'list:'+p+':'+limit,()=>listFresh(p,limit));
+ // Callers may sort their result. Keep the scan's observation order immutable.
+ return scanReads===null?values:values.slice();
+}
+function listFresh(p,limit=12000){
  if(!p||p.isNull())return [];
  const k=A.objectClass(p);
  if(fullname(k).endsWith('[]')){

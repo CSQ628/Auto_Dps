@@ -9,12 +9,13 @@ import threading
 import time
 import zipfile
 from .storage import DATA,atomic_json,load_json,event,recent_events
-from .runtime import Bridge,discover,launch
+from .runtime import Bridge,BridgeStarting,BridgeFailure,BRIDGE_STARTUP_SECONDS,BRIDGE_LISTENER_SECONDS,transport_error,bridge_error_message,discover,launch
 from .policy import MODULES,choose,ranked_actions,module_for,strength_signature,observe_growth
 from .completion import milestones
 from .combat import observe_combat
 from .tower import observe_tower_turn, begin_tower_turn
 from .training import observe_experience, observe_farming
+from .performance import observe_scan_cost
 from .recovery import observe_battle_readiness
 from .transitions import paid_entry, stage_arrived, entry_cleared
 from .platform_paths import VERSION
@@ -144,7 +145,9 @@ class Engine:
                     # Let Unity and Steam finish initial loading before attaching a native bridge.
                     if time.time()-identity['created']<15:continue
                     if key not in self.bridges:
+                        if time.time()<row.get('bridge_retry_at',0):continue
                         self.bridges[key]=Bridge(identity);row['status']='connecting'
+                        row.pop('native_next_scan_at',None)
                     if key not in self.jobs or self.jobs[key].done():self.jobs[key]=self.pool.submit(self.tick,key)
                 for key in list(self.bridges):
                     if key not in live:
@@ -158,12 +161,16 @@ class Engine:
             self.stopping.wait(self.config['interval'])
     def tick(self,key):
         bridge=self.bridges[key];row=self.instances[key]
+        if time.time()<row.get('native_next_scan_at',0):return
         try:
-            scan=bridge.call('opportunities',strategy(self.config));snap=scan['snapshot']
+            scan=bridge.call('opportunities',self.bridge_options());snap=scan['snapshot']
+            observe_scan_cost(row,snap.get('bridgePerformance'),self.config['interval'],time.time())
             identity=(bridge.identity['box'] or 'host')+':'+snap['account']
             with self.lock:
                 state=self.durable.setdefault(identity,{'cooldowns':{},'uncertain':{},'last_equipment':{}})
                 row.update(snapshot=snap,actions=scan['actions'][:24],issues=scan['issues'],last_seen=time.time(),account=snap['account'],identity=identity,status='running' if self.config['running'] else 'paused',error=None,confirmed=state.get('confirmed',0),feature_evidence=copy.deepcopy(state.get('features',{})))
+                row['bridge_health']=getattr(bridge,'last_health',None)
+                row.pop('bridge_retry_at',None);row.pop('bridge_failures',None)
                 if any(i is not row and i.get('account')==snap['account'] and i.get('status') not in ('stopped','duplicate') for i in self.instances.values()):
                     row.update(status='duplicate',issues=['同一账号已有控制实例，当前实例仅观察']);return
             if state.get('backup',{}).get('status')!='created' or state['backup'].get('version')!=2 or not Path(state['backup']['path']).is_file():
@@ -185,8 +192,10 @@ class Engine:
             row['growth']=observe_growth(snap,state,time.time(),self.config)
             session=str(bridge.identity['pid'])+':'+str(bridge.identity['created'])
             row['tower_turn']=observe_tower_turn(snap,state,session,time.time())
-            row['experience']=observe_experience(snap,state,session,time.time(),self.config)
-            row['farming']=observe_farming(snap,state,session,time.time(),self.config)
+            # Adaptive scan spacing is part of the sampling clock, per instance.
+            observation_config={**self.config,'interval':row.get('effective_scan_interval',self.config['interval'])}
+            row['experience']=observe_experience(snap,state,session,time.time(),observation_config)
+            row['farming']=observe_farming(snap,state,session,time.time(),observation_config)
             row['battle_recovery']=observe_battle_readiness(snap,state,session,time.time())
             row['milestones']=milestones(snap,state.get('features',{}))
             row['pending_transitions']=[{'kind':p['action']['kind'],'mode':p['action'].get('mode'),
@@ -207,7 +216,7 @@ class Engine:
                     state.setdefault('entry_uncertainty',{})[action['key']]=entry
                     state.setdefault('pending_results',{})[action['key']]=entry
                     self.save()
-                command={**action,'account':snap['account'],'soulReserve':self.config['soul_reserve'],'premiumReserve':self.config['premium_reserve'],'permanentRunes':self.config['permanent_runes'],'strategy':strategy(self.config)}
+                command={**action,'account':snap['account'],'soulReserve':self.config['soul_reserve'],'premiumReserve':self.config['premium_reserve'],'permanentRunes':self.config['permanent_runes'],'strategy':self.bridge_options()}
                 if action['kind']=='progress' and action.get('mode')=='boss':
                     state['boss_attempt']={k:action[k] for k in ('level','ticket','ticketUid','ticketBefore')};self.save()
                 if action['kind']=='battle_recover':
@@ -217,6 +226,7 @@ class Engine:
                     begin_tower_turn(snap,state,session,time.time())
                     state['tower_attempt']={'level':action['level'],'max_stage':snap['record']['maxStage'],'cleared_before':snap['record'].get('towerMaxCleared'),'strength':strength_signature(snap),'at':time.time()};self.save()
                 result=bridge.call('execute',command)
+            observe_scan_cost(row,result.get('bridgePerformance'),self.config['interval'],time.time())
             status=result['status'];now=time.time()
             if action['kind']=='tower' and status in ('rejected','no_change','waiting','stale'):
                 state.pop('tower_turn',None)
@@ -248,21 +258,33 @@ class Engine:
                 self.update({'instances':{identity:False}})
                 row.update(status='paused',error='可交易物品校验出现差异，已停止该实例提交')
             self.save();self.record(key,status,action['label'],identity=identity,box=bridge.identity['box'],action=action,result=result)
+        except BridgeStarting as e:
+            # Readiness is a normal startup phase, not a failed native action.
+            with self.lock:row.update(status='connecting',error=None,actions=[],issues=[str(e)],bridge_health=e.health)
         except Exception as e:
-            with self.lock:row.update(status='recovering',error=str(e))
+            health=e.health if isinstance(e,BridgeFailure) else None
+            if health is None and hasattr(bridge,'health'):
+                try:health=bridge.health(timeout=.5)
+                except Exception:pass
+            age=time.time()-bridge.started
+            if health and health.get('phase')=='starting' and age<BRIDGE_STARTUP_SECONDS:
+                with self.lock:row.update(status='connecting',error=None,actions=[],issues=[str(BridgeStarting(health))],bridge_health=health)
+                return
+            message=bridge_error_message(e)
+            with self.lock:row.update(status='recovering',error=message,actions=[],bridge_health=health)
             # Observation failure is not evidence that the bridge/game stopped.
-            if row.get('last_error')!=str(e):self.record(key,'error',str(e));row['last_error']=str(e)
-            # Restart an owned helper only after its process is authoritatively terminal.
-            if bridge.process.poll() is not None:
+            if row.get('last_error')!=message:self.record(key,'error',message);row['last_error']=message
+            # Sandboxie's launcher may exit while its authenticated helper is still alive.
+            healthy=health and health.get('phase')=='ready'
+            failed=health and (health.get('phase')=='failed' or health.get('phase')=='starting' and age>=BRIDGE_STARTUP_SECONDS)
+            if failed or not healthy and (bridge.process.poll() is not None or transport_error(e) and age>=BRIDGE_LISTENER_SECONDS):
                 with self.lock:
                     if self.bridges.get(key) is bridge:
                         self.bridges.pop(key,None);bridge.close()
-            elif ('10061' in str(e) or 'connection refused' in str(e).lower()) and time.time()-bridge.started>=30:
-                # The helper can be transiently unavailable after an in-game scene reload.
-                # Allow Sandboxie/Frida to finish initialization before replacing an unready helper.
-                with self.lock:
-                    if self.bridges.get(key) is bridge:
-                        self.bridges.pop(key,None);bridge.close();row['status']='recovering'
+                        row['bridge_failures']=min(5,row.get('bridge_failures',0)+1)
+                        row['bridge_retry_at']=time.time()+min(30,2**row['bridge_failures'])
+    def bridge_options(self):
+        return {**strategy(self.config),'modules':dict(self.config['modules'])}
     def accept_notice(self):
         with self.lock:
             updated={'noticeAccepted':True};atomic_json(DATA/'preferences.json',updated);self.preferences=updated

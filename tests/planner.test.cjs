@@ -46,7 +46,7 @@ test('fusion uses the actual count, grade and unlocked recipe range',()=>{
 
 test('confirmation and unknown dialogs block cleanup even alongside a normal panel',()=>{
  for(const modal of ['DG.UI.ConfirmPopup','DG.UI.Popup.UnknownPopup']){
-  const policy=popupPolicy(['DG.UI.Popup.HeroPopup',modal]);
+  const policy=popupPolicy(['DG.UI.Popup.HeroPopup',modal],false);
   assert.deepEqual(Array.from(policy.blocked),[modal]);assert.equal(policy.cleanup,null);
  }
 });
@@ -54,7 +54,7 @@ test('confirmation and unknown dialogs block cleanup even alongside a normal pan
 test('only known ordinary panels can be cleaned up while mail and trade remain untouched',()=>{
  const policy=popupPolicy(['DG.UI.Popup.MailPopup','DG.UI.Popup.TradePopup','DG.UI.Popup.SteamInventoryPopup']);
  assert.equal(policy.cleanup,null);assert.equal(policy.blocked.length,0);
- assert.equal(popupPolicy(['DG.UI.Popup.HeroPopup']).cleanup,'DG.UI.Popup.HeroPopup');
+ assert.equal(popupPolicy(['DG.UI.Popup.HeroPopup'],false).cleanup,'DG.UI.Popup.HeroPopup');
 });
 
 test('offline reward display has a dedicated route and never enters generic cleanup',()=>{
@@ -81,4 +81,22 @@ test('pressure cleanup is configurable and keeps reserved, future-tier and rare 
  assert.equal(options(all,new Set(['reserved']),2,undefined,false).length,0);
  assert.deepEqual(Array.from(options(all,new Set(['reserved']),2,undefined,true),e=>e.info.uid),['plain','stored']);
  assert.equal(options(all,new Set(['reserved']),2,{recycle_normal_tier_gap:1,recycle_rare_tier_gap:2,recycle_pressure_cleanup:false},true).length,0);
+});
+
+test('manual inventory and growth panels remain open by default and resume when closed',()=>{
+ for(const name of ['HeroPopup','HeroInfoPopup','StoragePopup','CubePopup']){
+  const panel='DG.UI.Popup.'+name,policy=popupPolicy([panel]);
+  assert.deepEqual(Array.from(policy.blocked),[panel]);assert.equal(policy.cleanup,null);
+  assert.equal(popupPolicy([panel],false).cleanup,panel);
+ }
+ const rune=popupPolicy(['DG.UI.Rune.RuneTreePopup']);assert.equal(rune.blocked.length,1);assert.equal(rune.cleanup,null);
+ const closed=popupPolicy([]);assert.equal(closed.blocked.length,0);assert.equal(closed.cleanup,null);
+ const mixed=popupPolicy(['DG.UI.Popup.HeroPopup','DG.UI.Popup.OfflineRewardPopup']);assert.equal(mixed.offline,false);
+});
+test('non-equipment fusion uses an exact tier group instead of overlapping output ranges',()=>{
+ const recipe={CraftType:0,FusionType:4,Grade:1,MinTier:5,MaxTier:6,RequireCubeLevel:20,FusionCount:9};
+ const item={place:'inventory',info:{uid:'rune',count:9,tier:6,grade:1,kind:8}};
+ assert.equal(fusionPlans([item],[recipe],21).length,0);
+ assert.equal(fusionPlans([item],[{...recipe,MinTier:6,RequireCubeLevel:30}],29).length,0);
+ assert.equal(fusionPlans([item],[{...recipe,MinTier:6,RequireCubeLevel:30}],30).length,1);
 });

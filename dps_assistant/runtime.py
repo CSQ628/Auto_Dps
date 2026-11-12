@@ -12,6 +12,9 @@ import sys
 import time
 import tempfile
 import hashlib
+import http.client
+import threading
+import urllib.error
 import urllib.request
 import psutil
 from .storage import DATA,ROOT,atomic_json
@@ -22,6 +25,41 @@ GAME=find_game()
 SBIE=find_sandboxie()
 _api=None
 _http=loopback_opener()
+_system_http=loopback_opener(prefer_native=False)
+BRIDGE_STARTUP_SECONDS=90
+BRIDGE_LISTENER_SECONDS=30
+
+
+class BridgeStarting(RuntimeError):
+    def __init__(self,health):
+        self.health=health
+        step={'listener':'启动本地连接','attach':'连接游戏','load':'加载桥接','exports':'准备原生接口'}.get(health.get('step'),'准备桥接')
+        super().__init__('正在'+step+'，稍后自动重试')
+
+
+class BridgeFailure(RuntimeError):
+    def __init__(self,health):
+        self.health=health
+        super().__init__('桥接初始化失败：'+str(health.get('error') or '初始化超时'))
+
+
+def transport_error(error):
+    """Only transport failures may be retried; a native HTTP error is not a lost connection."""
+    if isinstance(error,urllib.error.HTTPError):return False
+    if isinstance(error,urllib.error.URLError):return transport_error(error.reason)
+    if isinstance(error,str):return error.strip().lower() in ('timed out','timeout','connection refused','connection reset by peer')
+    if isinstance(error,(ConnectionError,TimeoutError,http.client.RemoteDisconnected,http.client.IncompleteRead)):return True
+    if isinstance(error,OSError):
+        return (getattr(error,'winerror',None) or error.errno) in (32,54,60,61,100,101,103,104,110,111,113,10050,10051,10053,10054,10060,10061,10065)
+    return False
+
+
+def bridge_error_message(error):
+    if 'main_thread_timeout' in str(error) or 'expired_before_execution' in str(error):
+        return '游戏主线程暂未响应，恢复后自动重新读取状态'
+    if transport_error(error):
+        return '本地桥接连接中断或超时，正在切换直连通道并重新连接'
+    return str(error)
 
 def box_for(pid):
     global _api
@@ -47,14 +85,17 @@ def discover():
         except (psutil.Error,OSError):continue
     return out
 
-def post(port,token,op,args=None,timeout=15):
+def post(port,token,op,args=None,timeout=15,prefer_native=True):
     payload={'op':op}
     if args is not None:payload['args']=args
     req=urllib.request.Request(f'http://127.0.0.1:{port}/',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
     try:
-        with _http.open(req,timeout=timeout) as response:body=json.load(response)
+        with (_http if prefer_native else _system_http).open(req,timeout=timeout) as response:body=json.load(response)
     except urllib.error.HTTPError as e:
-        body=json.load(e);raise RuntimeError(body.get('error',str(e))) from e
+        body=json.load(e)
+        if body.get('error')=='bridge_not_ready':raise BridgeStarting(body.get('health',{})) from e
+        if body.get('error')=='bridge_initialization_failed':raise BridgeFailure(body.get('health',{})) from e
+        raise RuntimeError(body.get('error',str(e))) from e
     if 'error' in body:raise RuntimeError(body['error'])
     return body['result']
 
@@ -62,7 +103,7 @@ class Bridge:
     def __init__(self,identity):
         self.identity=identity;self.token=secrets.token_urlsafe(32)
         with socket.socket() as s:s.bind(('127.0.0.1',0));self.port=s.getsockname()[1]
-        self.started=time.time();self.closed=False
+        self.started=time.time();self.closed=False;self.closing=threading.Event();self.last_health=None;self.prefer_native=True
         args=[*bridge_command(),'--pid',str(identity['pid']),'--port',str(self.port),'--token='+self.token,
               '--owner-pid',str(os.getpid()),'--owner-created',str(psutil.Process().create_time())]
         if identity['box']:args=[str(SBIE/'Start.exe'),'/silent','/wait','/box:'+identity['box'],*args]
@@ -76,10 +117,53 @@ class Bridge:
         except psutil.Error:return False
     def call(self,op,args=None):
         if not self.valid():raise RuntimeError('game_process_identity_changed')
-        return post(self.port,self.token,op,args)
+        # Only observation may be repeated after a lost connection. Never replay execute/backup.
+        if op not in ('snapshot','opportunities'):return post(self.port,self.token,op,args,prefer_native=getattr(self,'prefer_native',True))
+        for attempt in range(3):
+            try:
+                self.wait_ready()
+                if not self.valid():raise RuntimeError('game_process_identity_changed')
+                return post(self.port,self.token,op,args,prefer_native=getattr(self,'prefer_native',True))
+            except Exception as error:
+                if not transport_error(error):raise
+                self.prefer_native=not getattr(self,'prefer_native',True)
+                if attempt==2:raise
+                if self.closing.wait(.2*2**attempt):raise RuntimeError('bridge_closed') from error
+    def health(self,timeout=1):
+        request=urllib.request.Request(f'http://127.0.0.1:{self.port}/health',headers={'Authorization':'Bearer '+self.token})
+        with (_http if getattr(self,'prefer_native',True) else _system_http).open(request,timeout=timeout) as response:body=json.load(response)
+        health=body['result']
+        if body.get('pid')!=self.identity['pid'] or health.get('pid')!=self.identity['pid']:raise RuntimeError('bridge_identity_mismatch')
+        if health.get('phase') not in ('starting','ready','failed'):raise RuntimeError('bridge_health_invalid')
+        self.last_health=health
+        return health
+    def wait_ready(self,timeout=3):
+        deadline=time.monotonic()+timeout;delay=.1
+        while True:
+            if self.closed:raise RuntimeError('bridge_closed')
+            error=None
+            try:
+                health=self.health(timeout=min(1,max(.05,deadline-time.monotonic())))
+            except Exception as caught:
+                if not transport_error(caught):raise
+                self.prefer_native=not getattr(self,'prefer_native',True)
+                error=caught
+                health={'phase':'starting','step':'listener','pid':self.identity['pid']}
+            age=time.time()-self.started
+            if health['phase']=='ready':return health
+            if health['phase']=='failed':raise BridgeFailure(health)
+            if age>=BRIDGE_STARTUP_SECONDS:
+                raise BridgeFailure({**health,'phase':'failed','error':'等待游戏桥接初始化超时'})
+            remaining=deadline-time.monotonic()
+            if remaining<=0:
+                if error and age>=BRIDGE_LISTENER_SECONDS:raise error
+                raise BridgeStarting(health)
+            if self.closing.wait(min(delay,remaining)):raise RuntimeError('bridge_closed')
+            delay=min(delay*2,.5)
     def close(self):
         if self.closed:return
         self.closed=True
+        if hasattr(self,'closing'):self.closing.set()
         # Sandboxie's launcher can exit before its helper, which is then reparented to SbieSvc.
         # Identify that helper by its exact script, target, port and private session token.
         for helper in psutil.process_iter():

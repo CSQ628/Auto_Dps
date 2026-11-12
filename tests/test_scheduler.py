@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from dps_assistant import engine, storage
 from dps_assistant.policy import choose,observe_growth,strength_signature
-from dps_assistant.runtime import Bridge
+from dps_assistant.runtime import Bridge,BridgeStarting,BridgeFailure
 
 
 def scan(account='1001'):
@@ -58,6 +58,25 @@ class FakeBridge:
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_costly_scans_delay_only_the_same_instance_and_preserve_sampling_clock(self):
+        first,second=self.add(),self.add('2','1002','box')
+        first_call=first.call;counts={'scan':0}
+        def observed(op,args=None):
+            value=first_call(op,args)
+            if op=='opportunities':
+                counts['scan']+=1;value['snapshot']['bridgePerformance']={'scanMs':400,'nativeCalls':100,'cacheHits':200}
+            return value
+        first.call=observed
+        with patch.object(engine,'observe_experience',return_value={}) as exp, \
+             patch.object(engine,'observe_farming',return_value={}) as farm:
+            self.engine.tick('1')
+        self.assertEqual(exp.call_args.args[-1]['interval'],20)
+        self.assertEqual(farm.call_args.args[-1]['interval'],20)
+        self.assertEqual(self.engine.config['interval'],2)
+        self.engine.tick('1');self.assertEqual(counts['scan'],1)
+        self.engine.tick('2');self.assertEqual(len(second.commands),1)
+        self.assertEqual(first.commands[0]['kind'],'rune')
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         path = Path(self.directory.name)
@@ -382,6 +401,78 @@ class SchedulerTests(unittest.TestCase):
         self.engine.tick('1')
         self.assertNotIn('1',self.engine.bridges)
         self.assertTrue(bridge.closed)
+
+    def test_slow_initialization_is_visible_and_survives_exited_sandbox_launcher(self):
+        bridge=self.add();bridge.process.poll=lambda:0
+        health={'phase':'starting','step':'load','pid':1}
+        bridge.call=lambda *args: (_ for _ in ()).throw(BridgeStarting(health))
+        with patch.object(engine.time,'time',return_value=bridge.started+45):self.engine.tick('1')
+        self.assertIs(self.engine.bridges.get('1'),bridge)
+        self.assertFalse(bridge.closed)
+        self.assertEqual(self.engine.instances['1']['status'],'connecting')
+        self.assertIsNone(self.engine.instances['1']['error'])
+        self.assertEqual(self.engine.instances['1']['bridge_health'],health)
+        self.assertEqual(self.engine.events,[])
+
+    def test_failed_initialization_replaces_owned_helper_without_waiting_for_exit(self):
+        bridge=self.add()
+        bridge.call=lambda *args: (_ for _ in ()).throw(BridgeFailure({'phase':'failed','error':'attach denied'}))
+        self.engine.tick('1')
+        self.assertNotIn('1',self.engine.bridges)
+        self.assertTrue(bridge.closed)
+        self.assertIn('attach denied',self.engine.instances['1']['error'])
+        self.assertGreater(self.engine.instances['1']['bridge_retry_at'],time.time())
+        self.assertEqual(self.engine.instances['1']['bridge_failures'],1)
+
+    def test_live_starting_health_survives_transport_error_until_initialization_deadline(self):
+        bridge=self.add();bridge.process.poll=lambda:0
+        bridge.call=lambda *args: (_ for _ in ()).throw(ConnectionRefusedError('[WinError 10061]'))
+        bridge.health=lambda timeout=1:{'phase':'starting','step':'attach'}
+        with patch.object(engine.time,'time',return_value=bridge.started+45):self.engine.tick('1')
+        self.assertIs(self.engine.bridges.get('1'),bridge)
+        with patch.object(engine.time,'time',return_value=bridge.started+91):self.engine.tick('1')
+        self.assertNotIn('1',self.engine.bridges)
+        self.assertTrue(bridge.closed)
+
+    def test_live_health_preserves_reparented_helper_and_lost_execute_is_not_replayed(self):
+        bridge=self.add();bridge.process.poll=lambda:0
+        bridge.health=lambda timeout=1:{'phase':'ready'}
+        original=bridge.call
+        def call(op,args=None):
+            if op=='execute':
+                bridge.commands.append(args)
+                raise TimeoutError('reply lost after submission')
+            return original(op,args)
+        bridge.call=call
+        self.engine.tick('1')
+        self.assertIs(self.engine.bridges.get('1'),bridge)
+        self.assertFalse(bridge.closed)
+        self.assertIn('rune:1:0',self.engine.durable['host:1001']['uncertain'])
+        self.engine.tick('1')
+        self.assertEqual(len(bridge.commands),1)
+
+    def test_module_switches_reach_both_planning_and_execution(self):
+        bridge=self.add();original=bridge.call;seen=[]
+        def call(op,args=None):
+            seen.append((op,copy.deepcopy(args)))
+            return original(op,args)
+        bridge.call=call
+        self.engine.update({'modules':{'combine':False,'decompose':True,'storage':False}})
+        self.engine.tick('1')
+        planned=next(args for op,args in seen if op=='opportunities')
+        executed=next(args['strategy'] for op,args in seen if op=='execute')
+        for options in (planned,executed):
+            self.assertFalse(options['modules']['combine']);self.assertTrue(options['modules']['decompose'])
+            self.assertFalse(options['modules']['storage'])
+
+    def test_timeout_has_actionable_message_and_keeps_responsive_helper(self):
+        import urllib.error
+        bridge=self.add();bridge.health=lambda timeout=1:{'phase':'ready'}
+        bridge.call=lambda *args: (_ for _ in ()).throw(urllib.error.URLError('timed out'))
+        with patch.object(engine.time,'time',return_value=bridge.started+100):self.engine.tick('1')
+        self.assertIs(self.engine.bridges['1'],bridge);self.assertFalse(bridge.closed)
+        self.assertIn('直连通道',self.engine.instances['1']['error'])
+        self.assertNotIn('urlopen',self.engine.events[-1]['message'])
 
     def test_close_finds_reparented_helper_without_terminating_other_sessions_or_game(self):
         from dps_assistant.runtime import ROOT
