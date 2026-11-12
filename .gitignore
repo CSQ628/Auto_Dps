@@ -1,0 +1,11 @@
+.private/
+runtime/
+node_modules/
+web/node_modules/
+web/dist/
+__pycache__/
+*.pyc
+build/
+dist/
+.venv/
+*.log

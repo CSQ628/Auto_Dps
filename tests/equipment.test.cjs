@@ -1,0 +1,121 @@
+const fs=require('node:fs'),vm=require('node:vm'),test=require('node:test'),assert=require('node:assert/strict');
+function fixture(){
+ const mutations=[],freed=[];let rooted=0;
+ const item=(uid,value,slots=[0],extra={})=>({uid,value,slots,config:{Tradable:false},isNull:()=>false,
+  get_Config(){return this.config;},get_EquipmentConfig(){return {EquipPart:this.slots[0]};},get_Uid(){return this.uid;},get_IsLocked(){return !!this.locked;},get_IsServerConfirmed(){return this.confirmed!==false;},get_Sockets(){return this.sockets||[];},...extra});
+ const inv={items:[],get_Has(){return this.items;}},storage={items:[],get_Has(){return this.items;},get_SlotCountPerTab:()=>49,IsTabUnlocked:()=>true},gear=new Map();
+ const character=(id,items)=>{const eq={items,get_Has(){return this.items;},CanAccept:(slot,p)=>p.slots.includes(slot),IsUnderRequireLevel:p=>!!p.underLevel,IsWrongClass:()=>false};gear.set(id,eq);return {id};};
+ const im={get_Inventory:()=>inv,get_Storage:()=>storage,GetEquipment:id=>gear.get(id),IsInUse:p=>!!p.inUse,IsEquipped:()=>false,FindRegistrations:p=>p.registered?[1]:[],
+  TryBuildScoreBasis:()=>true,CalculateEquipScore:(_id,set)=>set.reduce((v,p)=>v+(p?.value||0),0),
+  IsBetterEquipment:()=>{throw Error('main-only comparison must not run');},
+  TryExchange:(from,index,to,slot)=>{mutations.push({uid:from.items[index].uid,slot});[from.items[index],to.items[slot]]=[to.items[slot],from.items[index]];return true;}};
+ const context={api:name=>name==='array_new'?(_klass,n)=>{const array=Array(n).fill(null);array.add=offset=>({writePointer:p=>{array[(offset-32)/8]=p;}});return array;}:()=>64,
+  klass:x=>x,Memory:{alloc:n=>({n})},PS:8,nil:null,gcNew:p=>{rooted++;return p;},gcFree:p=>{rooted--;freed.push(p);},
+  list:x=>x,read:(o,n)=>o[n],ref:p=>p,single:()=>im,call:(o,n,args=[])=>o[n](...args)};
+ vm.createContext(context);vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.subject={equipmentPlans,equipAction,equipmentScorer,allocateEquipment,protectedItem,approvedMaterials};',context);
+ return {item,character,gear,im,inv,storage,mutations,freed,rooted:()=>rooted,...context.subject};
+}
+test('all three characters and every slot receive independent upgrade plans',()=>{
+ const f=fixture(),chars=[3,1,2].map(id=>f.character(id,[f.item('old-'+id,1,[id]),null]));
+ f.inv.items=[1,2,3].flatMap(id=>[f.item('weapon-'+id,5,[id]),f.item('off-'+id,7,[1])]);
+ // Give each character a distinct weapon class while off-hand slots accept the shared class.
+ for(const [id,eq] of f.gear)eq.CanAccept=(slot,p)=>slot===0?p.uid==='weapon-'+id:p.uid.startsWith('off-');
+ const details=[],plans=f.equipmentPlans(f.im,chars,[1,2,3],details);
+ assert.equal(plans.length,6);assert.equal(new Set(plans.map(p=>p.uid)).size,6);
+ for(const id of [1,2,3])assert.equal(plans.filter(p=>p.id===id).length,2);
+ assert.deepEqual(Array.from(details,p=>p.id),[1,2,3]);assert.equal(f.rooted(),0);
+});
+test('shared UID goes to one character, with empty slots first',()=>{
+ const f=fixture(),chars=[f.character(1,[f.item('old',1)]),f.character(2,[null]),f.character(3,[null])];
+ f.inv.items=[f.item('shared',10)];const plans=f.equipmentPlans(f.im,chars,[3,2,1]);
+ assert.equal(plans.length,1);assert.equal(plans[0].id,3);assert.equal(plans[0].uid,'shared');
+});
+test('recycling preserves all improvements and future-level equipment across the roster',()=>{
+ const f=fixture(),chars=[f.character(1,[f.item('old',1)]),f.character(2,[null])];
+ f.inv.items=[f.item('shared',10),f.item('alternative',8),f.item('future',20,[0],{underLevel:true})];
+ for(const eq of f.gear.values())eq.CanAccept=(_slot,p)=>!p.underLevel;
+ const reserved=new Set(),plans=f.equipmentPlans(f.im,chars,[1,2],[],reserved);
+ assert.ok(plans.length>0);assert.deepEqual([...reserved].sort(),['alternative','future','shared']);
+});
+test('warehouse upgrade uses native whole-set score even if main-only comparison rejects it',()=>{
+ const f=fixture(),chars=[f.character(2,[f.item('old',10)])];f.storage.items=[f.item('substat-upgrade',11)];
+ const [plan]=f.equipmentPlans(f.im,chars);assert.equal(plan.source,'storage');
+ assert.equal(plan.scoring,'native_set');assert.equal(f.equipAction(plan).status,'confirmed');
+ assert.equal(f.gear.get(2).items[0].uid,'substat-upgrade');assert.equal(f.rooted(),0);
+});
+
+for(const source of ['inventory','storage'])test(source+' socketed gear upgrades a character without becoming crafting material',()=>{
+ const f=fixture(),chars=[f.character(3,[f.item('old',1)])],sockets=[{id:410302,value:12}];
+ const candidate=f.item('socketed-upgrade',10,[0],{sockets});
+ (source==='inventory'?f.inv:f.storage).items=[candidate];
+ assert.equal(f.protectedItem(f.im,candidate),true);
+ assert.equal(f.approvedMaterials(f.im,['socketed-upgrade']),null);
+ const [plan]=f.equipmentPlans(f.im,chars);assert.equal(plan.id,3);assert.equal(plan.source,source);
+ assert.equal(f.equipAction(plan).status,'confirmed');
+ assert.equal(f.gear.get(3).items[0],candidate);assert.deepEqual(candidate.sockets,sockets);
+ assert.equal(f.protectedItem(f.im,f.gear.get(3).items[0]),true);
+});
+
+test('socketed trade and unknown items remain protected even with greater native scores',()=>{
+ const f=fixture(),chars=[f.character(2,[null])];
+ f.inv.items=[f.item('trade',100,[0],{config:{Tradable:true},sockets:[1]}),f.item('unknown',100,[0],{config:{},sockets:[1]})];
+ const details=[];assert.equal(f.equipmentPlans(f.im,chars,[],details).length,0);
+ assert.equal(details[0].slotDetails[0].status,'protected_candidates');
+ assert.equal(f.equipAction({id:2,slot:0,uid:'trade',previousUid:null}).status,'stale');assert.equal(f.mutations.length,0);
+});
+
+test('empty slots distinguish missing items, native rejection and shared assignments',()=>{
+ const f=fixture(),chars=[f.character(1,[null,null]),f.character(2,[null,null]),f.character(3,[null,null])];
+ f.inv.items=[f.item('shared',10,[0])];const details=[];
+ f.gear.get(3).CanAccept=()=>false;
+ const plans=f.equipmentPlans(f.im,chars,[1,2,3],details);
+ assert.equal(plans.length,1);
+ assert.equal(details[0].slotDetails[0].status,'upgrade_ready');
+ assert.equal(details[1].slotDetails[0].status,'shared_candidate_assigned');
+ assert.equal(details[2].slotDetails[0].status,'native_rejected');
+ assert.equal(details[2].slotDetails[1].status,'no_candidate');
+});
+test('trade, locked, registered and unconfirmed candidates stay untouched',()=>{
+ const f=fixture(),chars=[f.character(1,[null])];
+ f.inv.items=[f.item('trade',100,undefined,{config:{Tradable:true}}),f.item('locked',100,undefined,{locked:true}),f.item('registered',100,undefined,{registered:true}),f.item('unknown',100,undefined,{confirmed:false})];
+ assert.equal(f.equipmentPlans(f.im,chars).length,0);assert.equal(f.mutations.length,0);
+});
+test('trade and locked equipment slots cannot be replaced',()=>{
+ const f=fixture(),chars=[f.character(1,[f.item('trade',1,undefined,{config:{Tradable:true}}),f.item('locked',1,undefined,{locked:true})])];
+ f.inv.items=[f.item('upgrade',100,[0,1])];assert.equal(f.equipmentPlans(f.im,chars).length,0);
+});
+test('native score unavailable or nonfinite fails closed and releases roots',()=>{
+ const f=fixture(),chars=[f.character(1,[null])];f.inv.items=[f.item('upgrade',10)];
+ f.im.TryBuildScoreBasis=()=>false;const diagnostics=[];
+ assert.equal(f.equipmentPlans(f.im,chars,[],diagnostics).length,0);assert.equal(diagnostics[0].status,'score_unavailable');
+ f.im.TryBuildScoreBasis=()=>true;f.im.CalculateEquipScore=()=>NaN;
+ assert.equal(f.equipmentPlans(f.im,chars).length,0);assert.equal(f.rooted(),0);
+});
+test('stale slot or lost improvement cannot cause a swap',()=>{
+ const f=fixture(),chars=[f.character(1,[f.item('old',1)])];f.inv.items=[f.item('upgrade',10)];
+ const [plan]=f.equipmentPlans(f.im,chars);f.gear.get(1).items[0]=f.item('manual-change',2);
+ assert.equal(f.equipAction(plan).reason,'equipped_item_changed');
+ f.gear.get(1).items[0]=f.item('old',20);
+ assert.equal(f.equipAction(plan).reason,'equipment_no_longer_upgrade');assert.equal(f.mutations.length,0);
+});
+test('scratch scoring keeps actual equipment immutable and frees its GC handle on failure',()=>{
+ const f=fixture(),items=[f.item('old',1)],has=items,score=f.equipmentScorer(f.im,1,items,has);
+ assert.equal(score.score(0,f.item('candidate',10)),10);assert.equal(items[0].uid,'old');score.close();assert.equal(f.rooted(),0);
+ f.im.CalculateEquipScore=()=>{throw Error('score_error');};
+ assert.throws(()=>f.equipmentScorer(f.im,1,items,has),/score_error/);assert.equal(f.rooted(),0);
+});
+
+
+test('configured minimum gain applies to planning and same-call execution while preserving future upgrades',()=>{
+ const f=fixture(),chars=[f.character(1,[f.item('old',100)])];f.inv.items=[f.item('upgrade',103)];
+ const reserved=new Set();assert.equal(f.equipmentPlans(f.im,chars,[],[],reserved,4).length,0);assert.ok(reserved.has('upgrade'));
+ const [plan]=f.equipmentPlans(f.im,chars,[],[],new Set(),2);assert.ok(plan);
+ assert.equal(f.equipAction(plan,4).status,'stale');assert.equal(f.mutations.length,0);
+ assert.equal(f.equipAction(plan,2).status,'confirmed');
+});
+
+test('empty equipment slots remain eligible under a high minimum gain',()=>{
+ const f=fixture(),chars=[f.character(1,[null])];f.inv.items=[f.item('starter',1)];
+ const [plan]=f.equipmentPlans(f.im,chars,[],[],new Set(),100);assert.ok(plan.empty);
+ assert.equal(f.equipAction(plan,100).status,'confirmed');
+});

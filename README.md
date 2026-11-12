@@ -1,2 +1,66 @@
-# Auto_Dps
-dps自动化助手
+# DPS 远征助手 · Auto_Dps 1.0.0
+
+DPS Desktop Pension Squad 的本地自动成长助手，支持普通游戏进程和可选的 Sandboxie-Plus 多实例。免费提供源码，仅供学习参考，禁止付费商业用途；允许自行修改和免费分发，详见 [使用许可](LICENSE)。
+
+## 下载与启动
+
+到 [Releases](https://github.com/weixiao030/Auto_Dps/releases/latest) 下载 **Auto_Dps-1.0.0-Windows-x64.zip**，完整解压后双击 `DPSAssistant.exe`。保留同目录下的 `_internal` 文件夹。
+
+发行包已包含运行环境，**无需安装 Python、Node.js、Frida 或 IDA**。需要 Windows 10/11 x64、已安装的游戏和正常的 Steam 环境。助手自动查找 Steam 及其多个游戏库，也可先从 Steam 启动游戏，助手会自动接入。普通单实例无需 Sandboxie；多实例需要自行安装 Sandboxie-Plus 并启动对应沙盒内的游戏。
+
+首次打开控制台显示使用说明，等待 3 秒后才能点击“我同意”。同意记录保存在本机，后续启动不再提示。关闭浏览器后自动化继续；再次双击程序可打开原控制台。需要退出时双击 `停止助手.cmd`，游戏不会被关闭。
+
+## 参数与自动保存
+
+每个自动化模块下直接显示当前参数，可原地调整。“参数设置”集中显示全部 **8 组、29 项**参数及其默认值、范围和用途。
+
+| 分组 | 可调整内容 |
+| --- | --- |
+| 运行与重试 | 巡检间隔、自动启动、启动重试、动作重试和冷却 |
+| 主线与练级 | 推进观察时长、失败次数、死亡回退、练级时长、主线重试、关卡偏移 |
+| 无限塔 | 挑战间隔、练级等待、失败后是否等待战力变化 |
+| 装备策略 | 槽位保持时间、淘汰装备回切时间、最低评分提升 |
+| 技能成长 | 保留点数、职业推荐组合、未使用技能退款 |
+| 符文与预算 | 灵魂与水晶保留预算、永久符文开关、投资偏好 |
+| 宠物策略 | 自动切换、成长、战斗或保留当前宠物 |
+| 工坊与仓库 | 背包压力、单批回收数量、普通与高品质回收档差 |
+
+数字修改约 0.7 秒后保存，离开输入框立即保存；开关和选项即时提交。非法数值不会写入，保存失败可重试。全部实例共用策略，各账号资源和进度独立计算。支持按组恢复默认值。
+
+配置、同意记录、运行日志和账号备份保存于 `%LOCALAPPDATA%\DPSAssistant`，不放入发行包。特殊安装位置可用 `DPS_GAME_PATH` 环境变量指定完整 `DPS.exe` 路径。
+
+## 自动成长
+
+联动宝箱、三角色逐槽换装、主动技能与被动、符文、角色和宠物、合成、分解、锻造、镶嵌、仓库、邮件、主线 Boss 和无限塔。主线失败后返回已通关的免费关卡练级，成长后重新推进。塔挑战按原生已通层数递进，主线和塔失败分别统计。
+
+换装采用同一次原生整套评分，执行前再次复核；实际战斗面板单独显示原生伤害、DPS、治疗和血量。可交易、锁定、登记和未确认物品受保护；Boss 仅按原生下一关要求使用已核验入场券。DLC 按游戏原生所有权判断。
+
+本机通信支持原生 TCP 与系统通道自动恢复，游戏外网状态单独显示。游戏离线或同步积压时，消费等待，符合原生条件的免费练级可继续。
+
+**1.0.0 已验证双实例自动成长和主要联动，但尚未完成所有长期毕业目标，不能把 5 分钟验证当作全程毕业保证。** 验证范围见 [VALIDATION.md](VALIDATION.md)。
+
+## 从源码运行
+
+开发环境需要 Python 3.10+ 和 Node.js 20+。
+
+```powershell
+python -m pip install -r requirements.txt
+cd web
+npm ci
+npm run build
+cd ..
+python -X utf8 desktop_entry.py
+```
+
+```powershell
+node --test tests/*.test.cjs
+python -X utf8 -m unittest discover -s tests -p "test_*.py"
+```
+
+Windows 打包：安装 `pyinstaller==6.15.0` 后运行 `python -X utf8 tools/build_release.py`。脚本同时收集第三方许可并生成 ZIP 与 SHA-256 校验文件。
+
+## 项目与支持
+
+该软件免费并开源，如果是付费购买请前往退款。无论是否打赏都不影响使用，全部免费。赞赏码在“参数设置”底部，来自作者指定的 [IdleLegions-AutoAbyss](https://github.com/weixiao030/IdleLegions-AutoAbyss)，说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+使用该助手导致的任何问题包括但不限于封号等问题，由使用者自行承担。允许修改和免费分发；修改后如方便，请署名并保留 [项目源地址](https://github.com/weixiao030/Auto_Dps)。
