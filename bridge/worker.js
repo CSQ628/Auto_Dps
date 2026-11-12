@@ -105,7 +105,14 @@ function snapshot(){
  const im=single('DG.Item.Manager.ItemManager'), gm=single('DG.Manager.GameManager'), bm=single('DG.InGame.Battle.Manager.BattleManager');
  const cm=single('DG.Manager.CurrencyManager'), drop=single('DG.Manager.DropManager'), rm=single('DG.Manager.RecordManager');
  const st=call(bm,'get_Stage');
- const characters=list(read(dm,'HasCharacters')).map(c=>({id:call(c,'get_ID'),level:call(c,'get_Level'),exp:call(c,'get_Exp'),points:call(c,'get_RemainingPoint')}));
+ const characters=list(read(dm,'HasCharacters')).map(c=>{
+  const row={id:call(c,'get_ID'),level:call(c,'get_Level'),exp:call(c,'get_Exp'),points:call(c,'get_RemainingPoint')};
+  // Native cumulative thresholds keep level-up resets out of experience deltas.
+  try{const reach=call(dm,'GetTotalExpToReach',[row.level]),next=call(dm,'GetExpToNext',[row.level]);
+   if(Number.isFinite(reach)&&reach>=0&&Number.isFinite(row.exp)&&row.exp>=0&&Number.isFinite(next)&&next>=0){row.expTotal=reach+row.exp;row.expNext=next;}
+  }catch(error){row.expTotal=null;row.expNext=null;}
+  return row;
+ });
  return {at:Date.now(),account:stat('DG.Save.InGame.SaveEnvironment','get_Directory').replaceAll('\\','/').split('/').pop(),saveDirectory:stat('DG.Save.InGame.SaveEnvironment','get_Directory'),nickname:call(dm,'get_Nickname'),loaded:call(im,'get_IsLoaded'),inventory:{count:call(call(im,'get_Inventory'),'get_OccupiedCount'),capacity:call(call(im,'get_Inventory'),'get_Capacity')},
   stage:{level:call(st,'get_Level'),wave:call(st,'get_Wave'),difficulty:call(st,'get_Difficulty'),category:call(st,'get_Category'),running:call(st,'get_IsRunning'),elapsed:call(st,'get_ElapsedTime'),repeat:call(gm,'get_RepeatStage'),alivePlayers:list(call(bm,'get_AlivePlayers')).length,aliveMonsters:list(call(bm,'get_AliveMonsters')).length},
   currencies:{soul:call(cm,'Get',[201]),premium:call(cm,'Get',[202])},characters,

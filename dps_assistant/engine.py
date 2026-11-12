@@ -13,6 +13,8 @@ from .runtime import Bridge,discover,launch
 from .policy import MODULES,choose,ranked_actions,module_for,strength_signature,observe_growth
 from .completion import milestones
 from .combat import observe_combat
+from .training import observe_experience, observe_farming
+from .recovery import observe_battle_readiness
 from .platform_paths import VERSION
 from .parameters import DEFAULT_STRATEGY,normalize_config,apply_patch,public_parameters,strategy
 
@@ -76,6 +78,22 @@ class Engine:
             if kind=='equipment':
                 character=next((c for c in snap.get('characters',[]) if c['id']==action['id']),{})
                 confirmed=any(p.get('slot')==action['slot'] and p['uid']==action['uid'] for p in character.get('equipment',[]))
+            if kind=='battle_recover':
+                ready=snap.get('battleReadiness',{})
+                confirmed=ready.get('known') and not ready.get('missing') and stage.get('alivePlayers',0)>0 and stage.get('running') and stage.get('category')==action.get('category') and stage.get('level')==action.get('level')
+                if not confirmed and time.time()-pending['at']>=45:
+                    state['pending_results'].pop(action_key);state['uncertain'].pop(action_key,None)
+                    self.record(key,'waiting','战场恢复尚未确认，等待下一次原生恢复尝试',identity=row['identity'],action=action)
+            readiness=snap.get('battleReadiness',{})
+            if kind in ('tower','tower_return','progress') and readiness.get('known') and (not readiness.get('charactersInitialized') or readiness.get('missing') or stage.get('alivePlayers',0)<=0):confirmed=False
+            transition=kind in ('tower','tower_return') or kind=='progress' and action.get('phase')=='travel'
+            if transition and not confirmed and time.time()-pending['at']>=strategy(self.config)['stage_transition_wait_seconds']:
+                state['pending_results'].pop(action_key);state['uncertain'].pop(action_key,None)
+                # A paid entry with an unknown result must never be automatically replayed.
+                state.setdefault('cooldowns',{})[action_key]=time.time()+strategy(self.config)['stage_transition_wait_seconds']
+                if not action.get('freeEntry'):
+                    state.setdefault('uncertain',{})[action_key]=time.time()
+                self.record(key,'waiting','切场确认超时，保留原生状态并停止重复提交',identity=row['identity'],action=action)
             if not confirmed:continue
             state['pending_results'].pop(action_key);state['uncertain'].pop(action_key,None)
             state['confirmed']=state.get('confirmed',0)+1;row['confirmed']=state['confirmed']
@@ -154,6 +172,10 @@ class Engine:
             state.setdefault('scheduling_started',time.time())
             row['combat_analysis']=observe_combat(snap,state,str(bridge.identity['pid'])+':'+str(bridge.identity['created']),time.time())
             row['growth']=observe_growth(snap,state,time.time(),self.config)
+            session=str(bridge.identity['pid'])+':'+str(bridge.identity['created'])
+            row['experience']=observe_experience(snap,state,session,time.time(),self.config)
+            row['farming']=observe_farming(snap,state,session,time.time(),self.config)
+            row['battle_recovery']=observe_battle_readiness(snap,state,session,time.time())
             row['milestones']=milestones(snap,state.get('features',{}))
             row['actions']=ranked_actions(scan,self.config,state)[:24]
             # A fresh native scan invalidates completed state-specific keys; elapsed time alone never proves failure.
@@ -167,6 +189,9 @@ class Engine:
                 command={**action,'account':snap['account'],'soulReserve':self.config['soul_reserve'],'premiumReserve':self.config['premium_reserve'],'permanentRunes':self.config['permanent_runes'],'strategy':strategy(self.config)}
                 if action['kind']=='progress' and action.get('mode')=='boss':
                     state['boss_attempt']={k:action[k] for k in ('level','ticket','ticketUid','ticketBefore')};self.save()
+                if action['kind']=='battle_recover':
+                    recovery=state['battle_recovery'];recovery.update(last_attempt=time.time(),attempts=recovery.get('attempts',0)+1)
+                    self.save()
                 if action['kind']=='tower':
                     state['tower_attempt']={'level':action['level'],'max_stage':snap['record']['maxStage'],'cleared_before':snap['record'].get('towerMaxCleared'),'strength':strength_signature(snap),'at':time.time()};self.save()
                 result=bridge.call('execute',command)
@@ -178,7 +203,7 @@ class Engine:
             if action['kind']=='equipment':state['last_equipment'][str(action['id'])]=now
             state.setdefault('last_module',{})[module_for(action['kind'])]=now
             if status=='pending':state['uncertain'][action['key']]=now
-            if status=='pending' and action['kind'] in ('tower','tower_return','equipment','progress'):state.setdefault('pending_results',{})[action['key']]={'action':action,'at':now}
+            if status=='pending' and action['kind'] in ('tower','tower_return','equipment','progress','battle_recover'):state.setdefault('pending_results',{})[action['key']]={'action':action,'at':now}
             if status=='confirmed':state['confirmed']=state.get('confirmed',0)+1;row['confirmed']=state['confirmed']
             if status=='confirmed' and action['kind']=='equipment':self.record_equipment(state,action,now)
             feature=state.setdefault('features',{}).setdefault(action['kind'],{'confirmed':0})

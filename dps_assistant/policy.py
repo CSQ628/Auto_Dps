@@ -20,7 +20,7 @@ MODULES={
  'ui_cleanup':('无人值守接续','收起普通面板以接续成长，交易面板保持等待'),
 }
 
-def module_for(kind):return {'formation':'unlock','pet_equip':'pet_unlock','skill_equip':'active','skill_refund':'active','skill_unequip':'active','deposit':'storage','withdraw':'storage','mail_open':'mail','mail_claim':'mail','mail_close':'mail','offline_close':'mail','tower_return':'progress'}.get(kind,kind)
+def module_for(kind):return {'formation':'unlock','pet_equip':'pet_unlock','skill_equip':'active','skill_refund':'active','skill_unequip':'active','deposit':'storage','withdraw':'storage','mail_open':'mail','mail_claim':'mail','mail_close':'mail','offline_close':'mail','tower_return':'progress','battle_recover':'ui_cleanup'}.get(kind,kind)
 
 def affordable(action,snapshot,config):
     cost=action.get('cost')
@@ -82,8 +82,17 @@ def ranked_actions(scan,config,state,now=None):
         # Free recovery must remain available while reward mutations wait for native sync.
         # The bridge recomputes the no-ticket prerequisite before it accepts this flag.
         if (backlogged or offline) and not (a.get('freeEntry') is True and
-                (a['kind']=='tower_return' or a['kind']=='progress' and a.get('mode') in ('guard','farm'))):continue
+                (a['kind'] in ('tower_return','battle_recover') or a['kind']=='progress' and a.get('mode') in ('guard','farm'))):continue
         if not config['modules'].get(module_for(a['kind']),False) and not(a['kind']=='progress' and a.get('mode')=='guard'):continue
+        readiness=scan['snapshot'].get('battleReadiness',{})
+        if readiness.get('known') and (not readiness.get('charactersInitialized') or readiness.get('expected',0)==0 or readiness.get('missing')) and (a['kind']=='tower' or a['kind']=='progress' and a.get('mode') not in ('guard',)):continue
+        transitioning=any(p.get('action',{}).get('kind') in ('tower','tower_return','battle_recover') or p.get('action',{}).get('kind')=='progress' and p['action'].get('phase')=='travel' for p in state.get('pending_results',{}).values())
+        if transitioning and (a['kind'] in ('tower','tower_return','battle_recover','formation') or a['kind']=='progress'):continue
+        if a['kind']=='battle_recover':
+            recovery=state.get('battle_recovery',{})
+            wait=options['stage_stall_wait_seconds'] if recovery.get('reason')=='stalled_end' else options['battle_recovery_wait_seconds']
+            if not recovery.get('eligible') or now-recovery.get('since',now)<wait or now-recovery.get('last_attempt',0)<options['battle_recovery_retry_seconds']:continue
+            if a.get('mode')!=('sync' if recovery.get('attempts',0)==0 and recovery.get('reason')!='stalled_end' else 'stage'):continue
         if state.get('cooldowns',{}).get(a['key'],0)>now:continue
         if a['key'] in state.get('uncertain',{}):continue
         if a['kind']=='equipment' and not equipment_ready(a,state,now,config):continue
@@ -92,6 +101,8 @@ def ranked_actions(scan,config,state,now=None):
         if a['kind']=='progress':
             phase=state.get('growth',{}).get('phase','push')
             if a.get('mode')=='farm' and phase!='farm':continue
+            route=state.get('farm_route')
+            if a.get('mode')=='farm' and route is not None and (a.get('level'),a.get('difficulty'))!=(route.get('level'),route.get('difficulty')):continue
             if a.get('mode') in ('push','boss') and phase=='farm':continue
         if a['kind']=='tower' and state.get('growth',{}).get('phase')=='farm' and now-state['growth'].get('since',now)<options['tower_farm_wait_seconds']:continue
         if a['kind']=='tower':

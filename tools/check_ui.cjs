@@ -35,11 +35,11 @@ const base=process.env.DPS_TEST_URL||'http://127.0.0.1:17861',output=process.env
   await page.setViewportSize({width:1440,height:1000});
   assert.equal(await page.locator('.module').count(),16);
   for(const module of await page.locator('.module').all())assert.ok(await module.locator('[data-parameter]').count());
-  assert.ok(await page.locator('.top-version').getByText('v1.0.0',{exact:true}).isVisible());
+  assert.ok(await page.locator('.top-version').getByText('v'+(await state()).version,{exact:true}).isVisible());
   await inspect('modules-desktop');await page.setViewportSize({width:700,height:653});await inspect('modules-700');
   await page.setViewportSize({width:390,height:844});await inspect('modules-mobile');
   await page.getByRole('button',{name:'参数设置',exact:true}).click();
-  await page.getByRole('heading',{name:'基础参数与策略'}).waitFor();assert.equal(await page.locator('[data-parameter]').count(),29);
+  await page.getByRole('heading',{name:'基础参数与策略'}).waitFor();assert.equal(await page.locator('[data-parameter]').count(),(await state()).parameters.fields.length);
   const initial=(await state()).config;
   const interval=page.getByRole('spinbutton',{name:'巡检间隔',exact:true});
   let finishFirst;
@@ -67,7 +67,7 @@ const base=process.env.DPS_TEST_URL||'http://127.0.0.1:17861',output=process.env
   await page.getByRole('button',{name:'放大赞赏码'}).click();await dialog.waitFor();
   await page.waitForFunction(()=>{const image=document.querySelector('.appreciation-dialog img');return image?.complete&&image.naturalWidth>0;});
   await page.getByRole('button',{name:'关闭',exact:true}).click();
-  report.rows=29;report.modules=16;report.preferences=(await state()).preferences;report.errors=errors;assert.deepEqual(errors,[]);
+  report.rows=(await state()).parameters.fields.length;report.modules=(await state()).modules.length;report.preferences=(await state()).preferences;report.errors=errors;assert.deepEqual(errors,[]);
  }finally{fs.writeFileSync(path.join(output,'report.json'),JSON.stringify({...report,errors},null,2));await browser.close();}
  console.log(JSON.stringify(report));
 })().catch(error=>{console.error(error);process.exitCode=1;});

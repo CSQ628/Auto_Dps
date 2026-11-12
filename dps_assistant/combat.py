@@ -25,6 +25,8 @@ def observe_combat(snapshot, state, session, now):
             previous['ambiguous'] = True
         contexts.setdefault(key, {'category': stage['category'], 'level': current['level'],
                                  'difficulty': current['difficulty'], 'started': now - max(0, current.get('elapsed', 0))})
+        if stage.get('repeat') is True and state.get('growth', {}).get('phase') == 'farm':
+            contexts[key]['farming'] = True
     completed = {str(item['sequence']) for item in observation['outcomes']}
     for record in raw.get('records', []) if raw.get('available') else []:
         key = str(record.get('sequence'))

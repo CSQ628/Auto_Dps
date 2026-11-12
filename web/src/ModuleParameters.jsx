@@ -7,13 +7,13 @@ const keys={
  active:['recommended_actives','allow_active_refund','skill_point_reserve'],
  passive:['skill_point_reserve'],rune:['rune_priority','soul_reserve','permanent_runes','premium_reserve'],
  unlock:['action_retry_seconds'],pet_unlock:['pet_mode'],
- progress:['push_wait_seconds','push_failure_limit','farm_min_seconds','farm_retry_seconds','farm_level_offset'],
+ progress:['push_wait_seconds','push_failure_limit','farm_min_seconds','farm_retry_seconds','farm_level_offset','farm_failure_limit','farm_candidate_count'],
  combine:['inventory_pressure_percent','action_cooldown_seconds'],
  decompose:['recycle_batch','recycle_normal_tier_gap','recycle_rare_tier_gap'],
  storage:['inventory_pressure_percent'],forge:['action_retry_seconds','action_cooldown_seconds'],
  refine:['action_retry_seconds','action_cooldown_seconds'],mail:['action_retry_seconds'],
  tower:['tower_retry_seconds','tower_farm_wait_seconds','tower_require_growth'],
- ui_cleanup:['action_retry_seconds','action_cooldown_seconds'],
+ ui_cleanup:['battle_recovery_wait_seconds','battle_recovery_retry_seconds','stage_stall_wait_seconds','stage_transition_wait_seconds','action_retry_seconds','action_cooldown_seconds'],
 };
 export default function ModuleParameters({module,schema,config,update}){
  const controls=useRef(new Map());

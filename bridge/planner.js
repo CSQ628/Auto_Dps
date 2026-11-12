@@ -1,6 +1,6 @@
 function bridgeStrategy(input={}){
  input=input&&typeof input==='object'?input:{};
- const out={},numbers={farm_level_offset:[1,1,20],inventory_pressure_percent:[80,40,100],recycle_batch:[12,1,12],recycle_normal_tier_gap:[1,1,10],recycle_rare_tier_gap:[2,1,10],skill_point_reserve:[0,0,100],equipment_min_gain_percent:[0,0,100]};
+ const out={},numbers={farm_candidate_count:[5,1,20],farm_level_offset:[1,1,20],inventory_pressure_percent:[80,40,100],recycle_batch:[12,1,12],recycle_normal_tier_gap:[1,1,10],recycle_rare_tier_gap:[2,1,10],skill_point_reserve:[0,0,100],equipment_min_gain_percent:[0,0,100]};
  for(const [key,[fallback,min,max]] of Object.entries(numbers))out[key]=typeof input[key]==='number'&&Number.isFinite(input[key])&&input[key]>=min&&input[key]<=max&&(key==='equipment_min_gain_percent'||Number.isInteger(input[key]))?input[key]:fallback;
  for(const key of ['recommended_actives','allow_active_refund'])out[key]=typeof input[key]==='boolean'?input[key]:true;
  out.rune_priority=['growth','balanced','combat'].includes(input.rune_priority)?input.rune_priority:'growth';
@@ -220,6 +220,37 @@ function entranceStatus(gm,im,category,level){
  return {level,ticket,safe:approved,uid:info.uid,count:info.count,consumeOnClear:approved,
   reason:approved?'boss_entry_ticket':info.tradable?'protected_ticket':'unavailable_ticket'};
 }
+function battleReadiness(s){
+ try{
+  const gm=single(names.game),bm=single('DG.InGame.Battle.Manager.BattleManager'),arrange=call(bm,'get_Arrange');
+  const owned=new Set(s.characters.map(c=>c.id)),ids=s.squad.filter(id=>id>0);
+  if(new Set(ids).size!==ids.length||ids.some(id=>!owned.has(id)))return {known:false,reason:'squad_not_ready'};
+  const missing=ids.filter(id=>{const model=call(arrange,'GetArrangedCharacter',[id]);return !model||model.isNull();});
+  return {known:true,charactersInitialized:call(single(names.chars),'get_IsInitialized'),expected:ids.length,missing,
+   arrangedCount:call(arrange,'GetArrangedCharactersCount'),squadArranged:read(gm,'_squadArranged'),
+   syncRunning:read(gm,'_squadSyncRunning'),syncPending:read(gm,'_squadSyncPending'),
+   enterSequence:read(gm,'_enterSequence'),ending:call(gm,'IsStageEnding'),pendingSpawn:call(call(bm,'get_Stage'),'get_HasPendingSpawn'),timeScale:invoke(external('UnityEngine','Time'),nil,'get_timeScale')};
+ }catch(error){return {known:false,reason:'native_readiness_unavailable'};}
+}
+function battleRecoveryCase(s){
+ const r=s.battleReadiness,stage=s.stage;
+ if(!r?.known||!r.charactersInitialized||r.expected<=0||r.syncRunning!==false||r.syncPending!==false||stage.category!==0||r.timeScale===0)return null;
+ if(r.missing.length&&r.arrangedCount===0&&stage.alivePlayers===0)return 'missing_party';
+ if(!r.missing.length&&r.arrangedCount>0&&stage.running===false&&stage.wave>0&&stage.aliveMonsters===0&&r.pendingSpawn===false)return 'stalled_end';
+ return null;
+}
+function battleRecoveryPlans(s){
+ const r=s.battleReadiness,stage=s.stage,reason=battleRecoveryCase(s);
+ if(!reason)return [];
+ const base={kind:'battle_recover',priority:145,level:stage.level,difficulty:stage.difficulty,category:stage.category,freeEntry:true};
+ const suffix=[stage.category,stage.level,stage.difficulty,r.enterSequence,s.squad.join('-')].join(':');
+ const plans=reason==='missing_party'?[{...base,mode:'sync',reason,key:'battle_recover:sync:'+suffix,label:'重新同步已保存编队，恢复缺失英雄'}]:[];
+ const gm=single(names.game);let target=stage.level;
+ const cleared=s.combat?.available&&s.combat.current?.result==='Cleared'&&s.combat.current.level===stage.level&&s.combat.current.difficulty===stage.difficulty&&stage.level<=s.record.maxCleared;
+ if(reason==='stalled_end'&&cleared&&!stage.repeat&&call(gm,'HasStageData',[stage.level+1,stage.difficulty])&&call(gm,'GetRequireItemID',[0,stage.level+1])<=0&&call(gm,'CanEnterStage',[0,stage.level+1]))target=stage.level+1;
+ if(call(gm,'GetRequireItemID',[stage.category,target])<=0&&call(gm,'CanEnterStage',[stage.category,target]))plans.push({...base,level:target,mode:'stage',reason,key:'battle_recover:stage:'+suffix+':'+target,label:target===stage.level?'重新进入当前免费关卡，接续战斗':'已确认通关，接续下一免费关卡'});
+ return plans;
+}
 function progressionOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  if(s.stage.category!==0){s.progression={mode:'content',gate:null};return;}
  const gm=single(names.game),levels=list(call(read(dm,'_stageConfigTable'),'get_Datas')).map(p=>read(p,'Level'));
@@ -237,10 +268,12 @@ function progressionOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
   issues.push(gate.reason==='protected_ticket'?'下一关的原生入场目标属于受保护物品，当前关练级，保持物品原位':'下一关暂无可用的已确认入场物品，继续积累战力');
   if(!s.stage.repeat)add('progress','guard_gate:'+next+':'+gate.reason,'保留入场物品，当前关继续成长',130,{mode:'guard',repeat:true,freeEntry:true});
  }else if(s.stage.repeat)add('progress','repeat_off','练级完成，恢复主线推进',106,{mode:'push',repeat:false});
- const target=levels.filter(level=>level<=Math.max(1,s.record.maxCleared-options.farm_level_offset)&&level>0).sort((a,b)=>b-a).find(level=>{
-  return entranceStatus(gm,im,0,level).safe&&call(gm,'CanEnterStage',[0,level])&&call(gm,'CanRepeat',[0,level]);
- });
- if(target&&(!s.stage.repeat||s.stage.level!==target)){
+ // Farming never spends an entry item, including a native-approved Boss ticket.
+ const targets=[...new Set(levels)].filter(level=>Number.isInteger(level)&&level>0&&level<=Math.max(1,s.record.maxCleared-options.farm_level_offset)&&level<=s.record.maxCleared)
+  .sort((a,b)=>b-a).filter(level=>call(gm,'GetRequireItemID',[0,level])<=0&&entranceStatus(gm,im,0,level).safe&&call(gm,'CanEnterStage',[0,level])&&call(gm,'CanRepeat',[0,level])).slice(0,options.farm_candidate_count);
+ const stages=list(call(read(dm,'_stageTable'),'get_Datas'));
+ s.progression.farmCandidates=targets.map(level=>{const stage=stages.find(p=>read(p,'Level')===level);return stage?{level,difficulty:read(stage,'Difficulty')}:null;}).filter(Boolean);
+ for(const target of targets)if(!s.stage.repeat||s.stage.level!==target){
   const stage=list(call(read(dm,'_stageTable'),'get_Datas')).find(p=>read(p,'Level')===target);
   const phase=s.stage.level===target?'repeat':'travel';
   if(stage)add('progress','farm:'+target+':'+phase,phase==='travel'?'返回已通关关卡，准备自动练级':'重复已通关关卡，积累等级与材料',107,{mode:'farm',phase,repeat:true,level:target,difficulty:read(stage,'Difficulty'),freeEntry:call(gm,'GetRequireItemID',[0,target])<=0});

@@ -53,12 +53,14 @@ function opportunityScan(input={}){
  const options=bridgeStrategy(input);
  const s=snapshot();s.squad=list(s.squad);s.combat=combatSnapshot(s);
  const dm=single(names.data),im=single(names.items),cm=single(names.chars),pm=single(names.pets),rp=runesProvider(),drop=single(names.drop);
+ s.battleReadiness=battleReadiness(s);
+ if(s.battleReadiness.known&&!s.battleReadiness.charactersInitialized)return jsonSafe({snapshot:s,actions:[],issues:['等待原生角色与存档初始化，暂缓成长操作']});
  const actions=[],issues=[];const add=(kind,key,label,priority,detail={})=>actions.push({kind,key,label,priority,...detail});
  const roster=list(call(cm,'GetAllCharacters'));
  for(const t of roster){const id=read(t,'ID');if(call(cm,'CanUnlock',[id],'System.Int32'))add('unlock','character:'+id,'解锁角色 '+id,100,{id});}
  s.roster=contentGoal(roster.map(p=>growthContentRow(cm,p,'Character','System.Int32')));
  for(const c of s.characters){
-   if(!stat(names.squad,'IsArranged',[c.id])&&stat(names.squad,'GetEmptySlotIndex')>=0)add('formation','arrange:'+c.id,'补齐编队 '+c.id,98,{id:c.id});
+   if(!stat(names.squad,'IsArranged',[c.id])&&stat(names.squad,'GetEmptySlotIndex')>=0)add('formation','arrange:'+c.id,'补齐编队 '+c.id,s.squad.some(id=>id>0)?98:142,{id:c.id});
    const activeSlots=list(call(dm,'GetEquippedActives',[c.id])),equippedActives=new Set(activeSlots.filter(Boolean));
    const activeConfigs=list(call(dm,'GetActiveSkills',[c.id]));
    const activeRows=activeConfigs.map(p=>({uid:read(p,'UniqueID'),type:activeTypeNames[read(p,'Type')]||'Unknown',unlock:read(p,'UnlockLevel'),learned:call(dm,'GetActiveLearnedLevel',[c.id,read(p,'UniqueID')])}));
@@ -134,6 +136,7 @@ function opportunityScan(input={}){
  s.characters.sort((a,b)=>(squadOrder.get(a.id)??s.squad.length)-(squadOrder.get(b.id)??s.squad.length)||a.id-b.id);
  auxiliaryOpportunities(s,dm,im,add,issues);
  progressionOpportunities(s,dm,im,add,issues,options);
+ for(const action of battleRecoveryPlans(s))add(action.kind,action.key,action.label,action.priority,action);
  if(s.inventory.count>=s.inventory.capacity)issues.push('背包已满：优先合成、扩容与回收后继续开箱');
  const server=single('DG.Network.ServerManager'),reach=read(server,'_reachability');
  s.connection={online:reach&&!reach.isNull()?call(reach,'get_IsOnline'):false,loggedIn:call(server,'get_IsLoggedIn'),trustBlocked:call(server,'get_IsTrustBlocked')};
@@ -150,11 +153,12 @@ function executeAction(cmd){
  if(scan.snapshot.automationBlocked?.length)return {status:'waiting',reason:'native_modal_active'};
  const action=scan.actions.find(a=>a.key===cmd.key&&a.kind===cmd.kind);
  if(!action)return {status:'stale',reason:'native_prerequisite_changed'};
+ if(['tower','progress'].includes(action.kind)&&scan.snapshot.battleReadiness?.known&&(scan.snapshot.battleReadiness.syncRunning||scan.snapshot.battleReadiness.syncPending))return {status:'waiting',reason:'native_squad_transition_active'};
  if(scan.snapshot.sync.blocked)return {status:'waiting',reason:'native_sync_blocked'};
- const recovery=action.freeEntry===true&&(action.kind==='tower_return'||action.kind==='progress'&&['guard','farm'].includes(action.mode));
+ const recovery=action.freeEntry===true&&(['tower_return','battle_recover'].includes(action.kind)||action.kind==='progress'&&['guard','farm'].includes(action.mode));
  if(scan.snapshot.connection?.online===false&&!recovery)return {status:'waiting',reason:'native_offline'};
  if(scan.snapshot.sync.backlogged&&!recovery)return {status:'waiting',reason:'native_sync_backlog'};
- if(scan.snapshot.trading&&(['equipment','combine','decompose','forge','refine','deposit','withdraw','tower'].includes(action.kind)||action.kind==='progress'&&action.mode==='boss'))return {status:'waiting',reason:'trade_panel_active'};
+ if(scan.snapshot.trading&&(['equipment','combine','decompose','forge','refine','deposit','withdraw','tower','battle_recover'].includes(action.kind)||action.kind==='progress'&&action.mode==='boss'))return {status:'waiting',reason:'trade_panel_active'};
  if(action.cost){
   const cost=action.cost,allowed=cost.goods===201?scan.snapshot.currencies.soul-cost.amount>=(cmd.soulReserve||0):cost.goods===202&&action.kind==='rune'&&action.permanent&&cmd.permanentRunes===true&&scan.snapshot.currencies.premium-cost.amount>=Math.max(0,cmd.premiumReserve??2);
   if(!Number.isFinite(cost.amount)||cost.amount<0||!allowed)return {status:'waiting',reason:'budget_changed'};
@@ -185,6 +189,16 @@ function executeAction(cmd){
  case 'combine':case 'decompose':return {...guardedItemAction(()=>cubeAction(action),scan.snapshot.characters),action};
  case 'unlock':ok=call(single(names.chars),'TryUnlock',[action.id]);after=call(single(names.chars),'IsUnlocked',[action.id],'System.Int32');break;
  case 'formation':ok=stat(names.squad,'TryArrange',[action.id]);after=stat(names.squad,'IsArranged',[action.id]);break;
+ case 'battle_recover':{
+  const gm=single(names.game);
+  if(!battleRecoveryPlans(scan.snapshot).some(a=>a.key===action.key))return {status:'stale',reason:'battle_readiness_changed'};
+  if(action.mode==='sync')call(gm,'OnSquadChanged');
+  else {
+   if(call(gm,'GetRequireItemID',[action.category,action.level])>0||!call(gm,'CanEnterStage',[action.category,action.level]))return {status:'waiting',reason:'recovery_entry_not_free'};
+   call(gm,'GoToStage',[action.category,action.level,action.difficulty]);
+  }
+  return {status:'pending',mode:action.mode,source:'native_squad_recovery'};
+ }
  case 'box':before=call(single(names.record),'get_BoxOpenCount');ok=call(single(names.drop),'TryOpen',[action.grade]);after=call(single(names.record),'get_BoxOpenCount')>before;break;
  case 'equipment':return {...guardedItemAction(()=>equipAction(action,options.equipment_min_gain_percent),scan.snapshot.characters),action};
  case 'active':case 'passive':{

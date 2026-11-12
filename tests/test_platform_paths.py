@@ -48,7 +48,7 @@ class PortableTests(unittest.TestCase):
                     second = engine.Engine(start=False)
                     self.assertTrue(second.public_state()['preferences']['noticeAccepted'])
                     self.assertEqual(json.loads((root/'preferences.json').read_text(encoding='utf-8')), {'noticeAccepted': True})
-                    self.assertEqual(first.public_state()['version'], '1.0.0')
+                    self.assertEqual(first.public_state()['version'], json.loads((Path(__file__).resolve().parents[1]/'version.json').read_text(encoding='utf-8'))['version'])
                 finally:
                     first.stop()
                     if second:

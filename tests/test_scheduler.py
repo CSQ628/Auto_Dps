@@ -285,7 +285,7 @@ class SchedulerTests(unittest.TestCase):
     def test_async_return_is_only_confirmed_after_running_main_stage(self):
         self.add();row=self.engine.instances['1'];row['identity']='host:1001'
         action={'key':'return:15','kind':'tower_return','level':15,'label':'返回主线'}
-        state={'uncertain':{'return:15':1},'pending_results':{'return:15':{'action':action,'at':1}}}
+        state={'uncertain':{'return:15':1},'pending_results':{'return:15':{'action':action,'at':engine.time.time()}}}
         self.engine.settle_pending('1',row,state,{'stage':{'level':1,'category':1,'running':False}})
         self.assertEqual(state.get('confirmed',0),0)
         self.engine.settle_pending('1',row,state,{'stage':{'level':15,'category':0,'running':True}})
@@ -322,7 +322,7 @@ class SchedulerTests(unittest.TestCase):
         self.add();row=self.engine.instances['1'];row['identity']='host:1001'
         action={'key':'farm:18:travel','kind':'progress','mode':'farm','phase':'travel',
                 'level':18,'repeat':True,'label':'返回练级关卡'}
-        state={'uncertain':{action['key']:1},'pending_results':{action['key']:{'action':action,'at':1}}}
+        state={'uncertain':{action['key']:1},'pending_results':{action['key']:{'action':action,'at':engine.time.time()}}}
         self.engine.settle_pending('1',row,state,{'stage':{'category':0,'level':18,'running':False,'repeat':False}})
         self.assertEqual(state.get('confirmed',0),0)
         self.engine.settle_pending('1',row,state,{'stage':{'category':0,'level':18,'running':True,'repeat':False}})
