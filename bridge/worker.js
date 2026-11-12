@@ -99,6 +99,10 @@ function onMain(fn){return new Promise((resolve,reject)=>{const entry={fn,resolv
 const hook=Interceptor.attach(method(klass('DG.InGame.Battle.Manager.BattleManager'),'Update',0).readPointer(),{
   onEnter(){if(servicing||!queue.length)return;servicing=true;const job=queue.shift();clearTimeout(job.timer);try{if(Date.now()>job.deadline)throw Error('expired_before_execution');job.resolve(job.fn());}catch(e){job.reject(e);}finally{servicing=false;}}
 });
+function normalBattleCounts(rm){
+ try{return {normalClears:call(rm,'get_NormalStageClearCount'),normalFails:call(rm,'get_NormalStageFailCount')};}
+ catch(error){return {normalClears:null,normalFails:null};}
+}
 function snapshot(){
  const dm=single('DG.Manager.DataManager');
  if(!call(dm,'get_IsSaveLoaded')||!call(dm,'get_IsMasterTableLoaded'))throw Error('data_not_ready');
@@ -117,7 +121,7 @@ function snapshot(){
   stage:{level:call(st,'get_Level'),wave:call(st,'get_Wave'),difficulty:call(st,'get_Difficulty'),category:call(st,'get_Category'),running:call(st,'get_IsRunning'),elapsed:call(st,'get_ElapsedTime'),repeat:call(gm,'get_RepeatStage'),alivePlayers:list(call(bm,'get_AlivePlayers')).length,aliveMonsters:list(call(bm,'get_AliveMonsters')).length},
   currencies:{soul:call(cm,'Get',[201]),premium:call(cm,'Get',[202])},characters,
   boxes:[0,1,2].map(grade=>({grade,count:call(drop,'Count',[grade]),max:call(drop,'Max',[grade]),auto:call(drop,'IsAutoOpenEnabled',[grade])})),
-  record:{clears:call(rm,'get_StageClearCount'),maxStage:call(rm,'get_MaxReachedLevel'),maxCleared:call(rm,'get_MaxClearedLevel'),towerMaxCleared:call(rm,'get_MaxClearedInfinityTowerLevel'),deaths:call(rm,'get_DeathCount'),kills:call(rm,'get_KillCountNormal'),boxes:call(rm,'get_BoxOpenCount')},
+  record:{...normalBattleCounts(rm),clears:call(rm,'get_StageClearCount'),maxStage:call(rm,'get_MaxReachedLevel'),maxCleared:call(rm,'get_MaxClearedLevel'),towerMaxCleared:call(rm,'get_MaxClearedInfinityTowerLevel'),deaths:call(rm,'get_DeathCount'),kills:call(rm,'get_KillCountNormal'),boxes:call(rm,'get_BoxOpenCount')},
   squad:stat('DG.Manager.SquadManager','GetSquadSlots'),
  };
 }

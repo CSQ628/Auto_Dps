@@ -41,6 +41,23 @@ function fusionPlans(entries,recipes,cubeLevel){
   if(!recipe)return [];const batch=materialBatch(g.entries,recipe.FusionCount);return batch.length?[{...g,entries:batch,recipe}]:[];
  }).sort((a,b)=>b.entries.filter(e=>e.place==='inventory').length-a.entries.filter(e=>e.place==='inventory').length);
 }
+function fusionTasks(groups,free){
+ return groups.map(group=>{
+  const current=group.entries.filter(e=>e.place==='inventory');
+  const ready=current.reduce((n,e)=>n+e.info.count,0)>=group.recipe.FusionCount;
+  return {group,current,ready,withdraw:!ready&&free>0?group.entries.find(e=>e.place==='storage'):null};
+ });
+}
+function stagingDeposit(held,needed,materials,retiring,full,recalls){
+ const rank=rows=>[...rows].sort((a,b)=>((b.info.kind>=8?10:0)+b.info.grade)-((a.info.kind>=8?10:0)+a.info.grade)||String(a.info.uid).localeCompare(String(b.info.uid)))[0];
+ const ordinary=rank(held.filter(e=>!needed.has(e.info.uid)&&!materials.has(e.info.uid)&&!retiring.has(e.info.uid)));
+ if(ordinary||!full)return ordinary||null;
+ // Retention forbids consumption, not moving an otherwise safe item into storage.
+ // Keep the first pending recipe's held ingredients in place to avoid a withdraw/deposit loop.
+ const target=[...recalls].sort((a,b)=>b.priority-a.priority)[0];
+ const targetIds=new Set((target?.entries||[]).map(e=>e.info.uid));
+ return rank(held.filter(e=>!targetIds.has(e.info.uid)))||null;
+}
 function retirementPlans(entries,reserved,tier,options=bridgeStrategy()){
  // Equipment useful to any managed character (including the next level) is excluded upstream.
  return entries.filter(e=>!reserved.has(e.info.uid)&&[1,2].includes(e.info.kind)&&
@@ -76,19 +93,21 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  for(const plan of equipment){needed.add(plan.uid);add('equipment','equip:'+plan.id+':'+plan.uid+':'+plan.slot,'为角色 '+plan.id+' 装备'+(plan.source==='storage'?'仓库':'背包')+'优选装备',99,plan);}
  const cubeLevel=call(call(im,'get_Cube'),'get_Level');
  const candidates=safe.filter(e=>!needed.has(e.info.uid));
- const needItems=new Set(),free=s.inventory.capacity-s.inventory.count;
+ const needItems=new Set(),recalls=[],free=s.inventory.capacity-s.inventory.count;
  function recall(entries,reason,priority){
   for(const e of entries)needItems.add(e.info.uid);
   const item=entries.find(e=>e.place==='storage');
+  if(item)recalls.push({entries,priority});
   if(item&&free>0)add('withdraw','withdraw:'+item.info.uid+':'+stamp,'取用仓库物品 · '+reason,priority,{uid:item.info.uid});
  }
  const combineGroups=fusionPlans(candidates,catalog.recipes,cubeLevel);
  for(const plan of combineGroups)for(const e of plan.entries)needItems.add(e.info.uid);
- const group=combineGroups[0];
- if(group){
-  const current=group.entries.filter(e=>e.place==='inventory');
-  for(const e of group.entries)needItems.add(e.info.uid);
-  if(current.reduce((n,e)=>n+e.info.count,0)>=group.recipe.FusionCount)add('combine','combine:'+group.recipe.ID+':'+current.map(e=>e.info.uid+':'+e.info.count).join(','),'合成闲置材料并释放背包',s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100?104:84,{recipe:group.recipe.ID,category:group.category,tier:group.tier,maxGrade:group.grade,allowed:current.map(e=>e.info.uid)});
+ // Keep all ready recipes schedulable; one equipment batch must not hide warehouse gems.
+ const tasks=fusionTasks(combineGroups,free);
+ s.combining={groups:tasks.length,ready:tasks.filter(t=>t.ready).length,warehousePending:tasks.filter(t=>!t.ready).length,needSpace:free<=0&&tasks.some(t=>!t.ready),
+  warehouseMaterials:safe.filter(e=>e.place==='storage'&&[8,16].includes(e.info.kind)).reduce((n,e)=>n+e.info.count,0)};
+ for(const {group,current,ready} of tasks){
+  if(ready)add('combine','combine:'+group.recipe.ID+':'+current.map(e=>e.info.uid+':'+e.info.count).join(','),'合成闲置材料并释放背包',s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100?104:84,{recipe:group.recipe.ID,category:group.category,tier:group.tier,maxGrade:group.grade,allowed:current.map(e=>e.info.uid)});
   else recall(group.entries,'合成配方',103);
  }
  const tier=tierForLevel(Math.max(1,...s.characters.map(c=>c.level)),catalog.tiers);
@@ -119,8 +138,8 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  else if(obsolete.length)recall(obsolete.slice(0,1),'淘汰装备回收',102);
  if(s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100&&!call(storage,'get_IsFull')){
   const retiring=new Set(obsolete.map(e=>e.info.uid));
-  const stash=held.filter(e=>!needed.has(e.info.uid)&&!needItems.has(e.info.uid)&&!retiring.has(e.info.uid)).sort((a,b)=>(b.info.kind>=8?10:0)+b.info.grade-((a.info.kind>=8?10:0)+a.info.grade))[0];
-  if(stash)add('deposit','deposit:'+stash.info.uid+':'+stamp,'自动存仓，预留战利品空间',101,{uid:stash.info.uid});
+  const full=free<=0,stash=stagingDeposit(held,needed,needItems,retiring,full,recalls);
+  if(stash)add('deposit','deposit:'+stash.info.uid+':'+stamp,full?'背包已满，临时存仓以接续取料和开箱':'自动存仓，预留战利品空间',full?105:101,{uid:stash.info.uid});
  }
  if(s.inventory.count>=s.inventory.capacity)issues.push('背包已满，正在安排存仓、合成、回收与扩容');
 }
@@ -133,12 +152,15 @@ function popupPolicy(open){
 }
 // Stable role templates use native skill types and unlock levels, never combat-time scores.
 function planActives(rows,slots,level,points,recommended=true){
- const available=rows.filter(r=>r.unlock<=level),types=new Set(available.map(r=>r.type)),desired=[];
+ const available=rows.filter(r=>r.unlock<=level),types=new Set(rows.map(r=>r.type)),desired=[];
+ // Identify the role from its complete native catalogue, including skills unlocked later.
  const roles=recommended?(types.has('HitShield')&&types.has('Berserk')?['HitShield','Berserk','PowerAttack']:
   types.has('AttackSpeedStack')?['AttackSpeedStack','Barrage','CriticalBuff','ParabolaShot']:
-  types.has('GluttonyKill')?['GluttonyKill','FollowField','GluttonyStrike']:[]):[];
+  types.has('GluttonyKill')?['GluttonyKill','FollowField','GluttonyStrike']:
+  types.has('ShapeShiftSlash')?['ShapeShiftSlash','ShapeShiftRampage','SelfHeal','AreaBurstAttackSpeed']:
+  types.has('BrandBurst')?['BrandBurst','HealAlly','TeamAttackBuff','SignatureTeamShield']:[]):[];
  function add(uid){if(uid&&desired.length<slots.length&&!desired.includes(uid)&&available.some(r=>r.uid===uid))desired.push(uid);}
- for(const type of roles){const candidate=available.find(r=>r.type===type);if(candidate)add(candidate.uid);}
+ for(const type of roles){const candidate=available.filter(r=>r.type===type).sort((a,b)=>b.unlock-a.unlock||b.learned-a.learned||String(a.uid).localeCompare(String(b.uid)))[0];if(candidate)add(candidate.uid);}
  slots.forEach(add);available.forEach(r=>add(r.uid));
  const wanted=new Set(desired),equipped=new Set(slots.filter(Boolean)),used=new Set(),swaps=[];
  for(const uid of desired){
@@ -151,6 +173,10 @@ function planActives(rows,slots,level,points,recommended=true){
  const refund=rows.filter(r=>r.learned>0&&!wanted.has(r.uid)&&!equipped.has(r.uid)).map(r=>r.uid);
  const retire=points<=0&&missing.length&&!swaps.length&&!refund.length?slots.findIndex(uid=>uid&&!wanted.has(uid)):-1;
  return {desired,missing,learn:desired,refund,swaps,unequip:retire>=0?{slot:retire,uid:slots[retire],target:missing[0]}:null};
+}
+function towerRepeatGuard(stage){
+ if(stage?.category!==1||stage.repeat!==true)return null;
+ return {mode:'guard',repeat:false,freeEntry:true};
 }
 function nextTowerLevel(record,max){
  const cleared=record?.towerMaxCleared;
@@ -193,6 +219,8 @@ function auxiliaryOpportunities(s,dm,im,add,issues){
   }
  }
  const gm=single('DG.Manager.GameManager'),tower=nextTowerLevel(s.record,s.catalogue.towerMax);
+ const repeatGuard=towerRepeatGuard(s.stage);
+ if(repeatGuard)add('progress','tower_repeat_off','无限塔单次挑战，关闭继承的重复开关',131,repeatGuard);
  s.tower={level:tower,max:s.catalogue.towerMax,cleared:s.record.towerMaxCleared,complete:s.record.towerMaxCleared>=s.catalogue.towerMax};
  const ending=call(gm,'IsStageEnding');
  if(s.stage.category===1&&!s.stage.running&&ending){

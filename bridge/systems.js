@@ -237,12 +237,19 @@ function cubeAction(cmd){
  const tier=call(view,'get_SelectedTier'),toggle=call(view,'get_IncludeStorageToggle'),storage=call(toggle,'get_isOn');
  const category=cmd.kind==='combine'?call(view,'get_SelectedCategory'):null;
  const before=inventoryItems(im).map(itemInfo),soulBefore=call(single('DG.Manager.CurrencyManager'),'Get',[201]);
- let selected=[],ok=false,popup,submitted=false;
+ let selected=[],ok=false,popup,submitted=false,touched=false,result,executionError,step='native_ready';const cleanupIssues=[];
  try{
+  result=(()=>{
+  if(!call(view,'CanStartExecute'))return {status:'waiting',reason:'native_cube_busy'};
   // Combine/decompose use the base view's Show/SetSlots; CollectSlots exists only on assemble/refine.
-  call(toggle,'set_isOn',[false]);popup=activateCubeView(view);
-  if(category!==null){call(view,'SetCategory',[cmd.category]);call(view,'RefreshLevelRangeOptions');}
-  call(view,'SetSelectedTier',[cmd.tier]);call(view,'RebuildRules');
+  touched=true;call(toggle,'set_isOn',[false]);popup=sceneObject('DG.UI.Popup.CubePopup');activateCubeView(view);
+  step='configure';
+  if(category!==null){
+   call(view,'SetCategory',[cmd.category]);call(view,'RefreshLevelRangeOptions');call(view,'SetSelectedTier',[cmd.tier]);
+   if(call(view,'get_SelectedTier')!==cmd.tier)return {status:'waiting',reason:'native_tier_not_ready'};
+  }
+  // Decompose has no tier dropdown in the native view; an empty options list is valid.
+  call(view,'RebuildRules');step='reserve';
   for(const item of approved){
    for(let n=0;n<32&&call(cube,'CanReserveMore',[ref(item)]);n++)if(!call(im,'TryMoveToCube',[ref(item)]))break;
   }
@@ -251,16 +258,28 @@ function cubeAction(cmd){
   if(!materials.length)return {status:'waiting',reason:'native_material_not_reserved'};
   if(materials.some(p=>protectedItem(im,p))||selected.some(p=>!cmd.allowed.includes(p.uid)||p.grade>cmd.maxGrade))return {status:'waiting',reason:'autofill_contains_protected_material'};
   if(!call(view,'get_CanExecute'))return {status:'waiting',reason:'native_recipe_not_ready'};
-  submitted=true;
+  step='execute';submitted=true;
   ok=call(view,'TryExecute');
+  return null;
+  })();
  }catch(error){
-  // Only preparation is retryable; a failed response after TryExecute remains uncertain.
-  if(submitted)throw error;
-  return {status:'waiting',reason:'native_preparation_failed',error:String(error)};
+  // Never replay an uncertain consumption just because its response or cleanup failed.
+  if(submitted)executionError=error;
+  else result={status:'waiting',reason:'native_preparation_failed',step};
  }finally{
-  call(view,'ReleaseAll');if(popup)call(popup,'OnClickClose');
-  if(category!==null){call(view,'SetCategory',[category]);call(view,'RefreshLevelRangeOptions');}call(view,'SetSelectedTier',[tier]);call(toggle,'set_isOn',[storage]);
+  const cleanup=(name,fn)=>{if(!touched)return;try{fn();}catch(error){cleanupIssues.push(name);}};
+  cleanup('release',()=>call(view,'ReleaseAll'));
+  if(popup)cleanup('close',()=>call(popup,'OnClickClose'));
+  if(category!==null){
+   cleanup('category',()=>{call(view,'SetCategory',[category]);call(view,'RefreshLevelRangeOptions');});
+   cleanup('tier',()=>call(view,'SetSelectedTier',[tier]));
+  }
+  cleanup('storage',()=>call(toggle,'set_isOn',[storage]));
  }
+ if(executionError)throw executionError;
+ if(result)return {...result,...(cleanupIssues.length?{cleanupIssues}: {})};
  const after=inventoryItems(im).map(itemInfo),receipt=materialReceipt(before,after,selected);
- return {status:ok&&receipt.consumed.length?'confirmed':ok?'pending':'rejected',materials:selected,...receipt,beforeCount:before.length,afterCount:after.length,soulBefore,soulAfter:call(single('DG.Manager.CurrencyManager'),'Get',[201])};
+ return {status:ok&&receipt.consumed.length?'confirmed':ok?'pending':'rejected',
+  ...(cleanupIssues.length?{reason:'native_cleanup_incomplete',cleanupIssues}: {}),
+  materials:selected,...receipt,beforeCount:before.length,afterCount:after.length,soulBefore,soulAfter:call(single('DG.Manager.CurrencyManager'),'Get',[201])};
 }

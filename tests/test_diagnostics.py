@@ -26,3 +26,15 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(row['battle_result']['result'],'Cleared')
         self.assertEqual(row['pending_transitions'][0]['level'],10)
         self.assertNotIn('private-',json.dumps(row))
+
+
+    def test_waiting_reasons_are_shareable_but_native_errors_and_ids_are_not(self):
+        raw={'instances':[{'id':'1','feature_evidence':{
+            'decompose':{'confirmed':3,'last_status':'waiting','last_reason':'native_material_not_reserved','last_at':5},
+            'private-token':{'last_reason':'private-account'}},'snapshot':{}}],
+            'events':[{'instance':'1','at':6,'status':'waiting','action':{'kind':'decompose','uid':'private-uid'},
+                       'result':{'reason':'private-account','error':'private-path','step':'reserve'}}]}
+        value=diagnostics(raw)['instances'][0]
+        self.assertEqual(value['feature_status']['decompose']['last_reason'],'native_material_not_reserved')
+        self.assertEqual(value['recent_operations'][0]['reason'],'other_native_condition')
+        self.assertNotIn('private-',json.dumps(value))

@@ -175,6 +175,9 @@ function executeAction(cmd){
   if(scan.snapshot.stage.category!==0||action.level!==nextTowerLevel(scan.snapshot.record,scan.snapshot.catalogue?.towerMax)||!call(gm,'CanEnterStage',[1,action.level]))return {status:'stale',reason:'tower_frontier_changed'};
   const target=action.ticket>0?call(im,'FindOccupyTarget',[action.ticket]):null;
   if(action.ticket>0&&(!target||protectedItem(im,target)))return {status:'waiting',reason:'protected_entrance_ticket'};
+  // RepeatStage belongs to the main-stage farming loop. Never inherit it into the tower.
+  if(call(gm,'get_RepeatStage'))call(gm,'set_RepeatStage',[false]);
+  if(call(gm,'get_RepeatStage')!==false)return {status:'waiting',reason:'tower_repeat_not_disabled'};
   call(gm,'GoToStage',[1,action.level,0]);return {status:'pending',level:action.level};
  }
  case 'tower_return':{

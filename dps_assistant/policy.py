@@ -108,6 +108,7 @@ def ranked_actions(scan,config,state,now=None):
             if a.get('mode') in ('push','boss') and phase=='farm':continue
         if a['kind']=='tower' and state.get('growth',{}).get('phase')=='farm' and now-state['growth'].get('since',now)<options['tower_farm_wait_seconds']:continue
         if a['kind']=='tower':
+            if state.get('tower_turn',{}).get('waiting'):continue
             previous=state.get('tower_attempt',{})
             record=scan['snapshot'].get('record',{})
             changed=previous.get('strength') is not None and previous['strength']!=strength_signature(scan['snapshot'])

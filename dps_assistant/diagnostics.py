@@ -1,5 +1,19 @@
 """Explicit diagnostic fields suitable for a player to share with a bug report."""
 from .platform_paths import VERSION
+from .policy import MODULES
+
+STATUSES = frozenset(('confirmed','submitted','pending','no_change','stale','rejected','error','waiting'))
+KINDS = frozenset(MODULES) | {'deposit','withdraw','skill_refund','skill_equip','skill_unequip','pet_equip','formation','mail_open','mail_claim','mail_close','offline_close','tower_return','battle_recover'}
+REASONS = frozenset('user_item_operation user_popup_open view_not_ready cube_in_use native_cube_busy native_tier_not_ready native_material_not_reserved autofill_contains_protected_material native_recipe_not_ready native_preparation_failed native_cleanup_incomplete protected_or_missing_material tower_repeat_not_disabled'.split())
+
+def safe_reason(value):
+    return value if value in REASONS else 'other_native_condition' if value else None
+
+def feature_status(value):
+    return {'confirmed': value.get('confirmed',0),
+            'last_status': value.get('last_status') if value.get('last_status') in STATUSES else None,
+            'last_reason': safe_reason(value.get('last_reason')), 'last_at':value.get('last_at')}
+
 
 
 def diagnostics(state):
@@ -19,7 +33,13 @@ def diagnostics(state):
             'battle_recovery': row.get('battle_recovery'), 'record': snap.get('record'),
             'connection': snap.get('connection'), 'sync': snap.get('sync'),
             'bridge_source_hash': snap.get('bridgeSourceHash'),
-            'feature_confirmations': {k: v.get('confirmed', 0) for k, v in row.get('feature_evidence', {}).items()}})
+            'feature_confirmations': {k: v.get('confirmed', 0) for k, v in row.get('feature_evidence', {}).items() if k in KINDS},
+            'feature_status': {k: feature_status(v) for k,v in row.get('feature_evidence',{}).items() if k in KINDS},
+            'recent_operations': [{'at':e.get('at'),'kind':e['action']['kind'],
+                'status':e.get('status') if e.get('status') in STATUSES else None,
+                'reason':safe_reason((e.get('result') or {}).get('reason')),
+                'step':(e.get('result') or {}).get('step') if (e.get('result') or {}).get('step') in ('native_ready','configure','reserve','execute') else None}
+                for e in state.get('events',[]) if e.get('instance')==row.get('id') and e.get('action',{}).get('kind') in KINDS][-12:]})
     config = state.get('config', {})
     return {'version': VERSION, 'captured_at': state.get('now'), 'running': config.get('running'),
             'modules': config.get('modules'), 'parameters': config.get('strategy'), 'instances': instances,

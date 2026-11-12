@@ -7,7 +7,7 @@ function fixture(){
   get_Kind:()=>32,get_IsLocked(){return this.locked;},get_IsServerConfirmed(){return this.confirmed;},get_Sockets(){return this.sockets;}};
  let target=ticket;
  const im={inUse:false,equipped:false,registered:[],IsInUse(){return this.inUse;},IsEquipped(){return this.equipped;},FindRegistrations(){return this.registered;},FindOccupyTarget:()=>target};
- const gm={required:690100,GetRequireItemID(){return this.required;},CanEnterStage:()=>true,GoToStage:(...args)=>calls.push(args)};
+ const gm={required:690100,repeat:false,GetRequireItemID(){return this.required;},CanEnterStage:()=>true,get_RepeatStage(){return this.repeat;},set_RepeatStage(value){this.repeat=value;},GoToStage:(...args)=>calls.push(args)};
  const action={kind:'progress',mode:'boss',key:'boss:20:ticket',level:20,difficulty:0,ticket:690100,ticketUid:'ticket',ticketBefore:3};
  const scan={snapshot:{account:'1001',automationBlocked:[],sync:{},connection:{online:true},stage:{level:19},record:{maxCleared:19}},actions:[action]};
  const c={api:()=>()=>0,A:{fields:{}},iter:()=>[],klass:x=>x,withManagedThread:fn=>fn(),rpc:{exports:{}},

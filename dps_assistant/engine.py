@@ -13,6 +13,7 @@ from .runtime import Bridge,discover,launch
 from .policy import MODULES,choose,ranked_actions,module_for,strength_signature,observe_growth
 from .completion import milestones
 from .combat import observe_combat
+from .tower import observe_tower_turn, begin_tower_turn
 from .training import observe_experience, observe_farming
 from .recovery import observe_battle_readiness
 from .transitions import paid_entry, stage_arrived, entry_cleared
@@ -183,6 +184,7 @@ class Engine:
             row['combat_analysis']=observe_combat(snap,state,str(bridge.identity['pid'])+':'+str(bridge.identity['created']),time.time())
             row['growth']=observe_growth(snap,state,time.time(),self.config)
             session=str(bridge.identity['pid'])+':'+str(bridge.identity['created'])
+            row['tower_turn']=observe_tower_turn(snap,state,session,time.time())
             row['experience']=observe_experience(snap,state,session,time.time(),self.config)
             row['farming']=observe_farming(snap,state,session,time.time(),self.config)
             row['battle_recovery']=observe_battle_readiness(snap,state,session,time.time())
@@ -212,9 +214,12 @@ class Engine:
                     recovery=state['battle_recovery'];recovery.update(last_attempt=time.time(),attempts=recovery.get('attempts',0)+1)
                     self.save()
                 if action['kind']=='tower':
+                    begin_tower_turn(snap,state,session,time.time())
                     state['tower_attempt']={'level':action['level'],'max_stage':snap['record']['maxStage'],'cleared_before':snap['record'].get('towerMaxCleared'),'strength':strength_signature(snap),'at':time.time()};self.save()
                 result=bridge.call('execute',command)
             status=result['status'];now=time.time()
+            if action['kind']=='tower' and status in ('rejected','no_change','waiting','stale'):
+                state.pop('tower_turn',None)
             if paid_entry(action) and status in ('confirmed','rejected','no_change','waiting','stale'):
                 state.get('entry_uncertainty',{}).pop(action['key'],None)
                 state.get('pending_results',{}).pop(action['key'],None)
@@ -263,7 +268,7 @@ class Engine:
             updated={'noticeAccepted':True};atomic_json(DATA/'preferences.json',updated);self.preferences=updated
         return copy.deepcopy(updated)
     def public_state(self):
-        with self.lock:return copy.deepcopy({'version':VERSION,'preferences':self.preferences,'started':self.started,'now':time.time(),'config':self.config,'parameters':public_parameters(),'modules':[{'id':k,'name':n,'description':d} for k,(n,d) in MODULES.items()],'instances':list(self.instances.values()),'events':self.events[-80:],'data_directory':str(DATA),'validation':{'graduated':False,'message':'成长链路正在实机验证，尚未完成全系统与毕业验收'}})
+        with self.lock:return copy.deepcopy({'version':VERSION,'updates':self.updater.state() if getattr(self,'updater',None) else {'status':'unavailable'},'preferences':self.preferences,'started':self.started,'now':time.time(),'config':self.config,'parameters':public_parameters(),'modules':[{'id':k,'name':n,'description':d} for k,(n,d) in MODULES.items()],'instances':list(self.instances.values()),'events':self.events[-80:],'data_directory':str(DATA),'validation':{'graduated':False,'message':'成长链路正在实机验证，尚未完成全系统与毕业验收'}})
     def stop(self):
         self.stopping.set()
         if self.thread.is_alive():self.thread.join(timeout=5)
