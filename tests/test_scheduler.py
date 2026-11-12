@@ -288,9 +288,9 @@ class SchedulerTests(unittest.TestCase):
         state={'uncertain':{'return:15':1},'pending_results':{'return:15':{'action':action,'at':engine.time.time()}}}
         self.engine.settle_pending('1',row,state,{'stage':{'level':1,'category':1,'running':False}})
         self.assertEqual(state.get('confirmed',0),0)
-        self.engine.settle_pending('1',row,state,{'stage':{'level':15,'category':0,'running':True}})
+        self.engine.settle_pending('1',row,state,{'stage':{'level':15,'category':0,'running':True,'alivePlayers':1}})
         self.assertEqual(state['confirmed'],1);self.assertFalse(state['pending_results'])
-        self.engine.settle_pending('1',row,state,{'stage':{'level':15,'category':0,'running':True}})
+        self.engine.settle_pending('1',row,state,{'stage':{'level':15,'category':0,'running':True,'alivePlayers':1}})
         self.assertEqual(state['confirmed'],1)
 
     def test_boss_clear_requires_native_clear_record_and_is_only_reported_once(self):
@@ -318,6 +318,37 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(bridge.commands, [])
         self.assertEqual(self.engine.instances['1']['status'], 'recovering')
 
+    def test_lost_paid_reply_remains_reserved_across_missing_scan_timeout_and_new_ticket(self):
+        bridge=self.add();original=bridge.call
+        action={'kind':'progress','mode':'boss','phase':'travel','level':10,'difficulty':0,
+                'ticket':690100,'ticketUid':'old','ticketBefore':1,'key':'boss:10:old','priority':108,'label':'Boss'}
+        current=scan();current['actions']=[action]
+        def call(op,args=None):
+            if op=='opportunities':return copy.deepcopy(current)
+            if op=='execute':
+                bridge.commands.append(args)
+                raise TimeoutError('reply lost after submission')
+            return original(op,args)
+        bridge.call=call
+        self.engine.tick('1')
+        state=self.engine.durable['host:1001']
+        self.assertEqual(len(bridge.commands),1)
+        self.assertIn(action['key'],state['entry_uncertainty'])
+        current['actions']=[]
+        self.engine.tick('1')
+        self.assertIn(action['key'],state['uncertain'])
+        state['pending_results'][action['key']]['at']=1
+        self.engine.tick('1')
+        self.assertFalse(state['pending_results'])
+        current['actions']=[{**action,'key':'boss:10:new','ticketUid':'new'}]
+        self.engine.tick('1')
+        self.assertEqual(len(bridge.commands),1)
+        current['actions']=[]
+        current['snapshot']['stage']={'category':0,'level':10,'difficulty':0,'running':True,'alivePlayers':1}
+        self.engine.tick('1')
+        self.assertFalse(state['entry_uncertainty'])
+        self.assertNotIn(action['key'],state['uncertain'])
+
     def test_farm_travel_settles_before_native_repeat_is_reenabled(self):
         self.add();row=self.engine.instances['1'];row['identity']='host:1001'
         action={'key':'farm:18:travel','kind':'progress','mode':'farm','phase':'travel',
@@ -325,7 +356,7 @@ class SchedulerTests(unittest.TestCase):
         state={'uncertain':{action['key']:1},'pending_results':{action['key']:{'action':action,'at':engine.time.time()}}}
         self.engine.settle_pending('1',row,state,{'stage':{'category':0,'level':18,'running':False,'repeat':False}})
         self.assertEqual(state.get('confirmed',0),0)
-        self.engine.settle_pending('1',row,state,{'stage':{'category':0,'level':18,'running':True,'repeat':False}})
+        self.engine.settle_pending('1',row,state,{'stage':{'category':0,'level':18,'running':True,'repeat':False,'alivePlayers':1}})
         self.assertEqual(state['confirmed'],1)
         self.assertFalse(state['pending_results'])
         self.assertFalse(state['uncertain'])

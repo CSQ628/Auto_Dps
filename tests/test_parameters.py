@@ -14,8 +14,8 @@ class ParameterTests(unittest.TestCase):
     def test_legacy_config_retains_budget_and_gets_every_editable_default(self):
         old = {'soul_reserve': 123, 'modules': {'box': False}, 'strategy': {'pet_mode': 'keep'}}
         config = normalize_config(old)
-        self.assertEqual(len(PARAMETERS), 35)
-        self.assertEqual(len({(p['scope'], p['key']) for p in PARAMETERS}), 35)
+        self.assertEqual(len(PARAMETERS), 39)
+        self.assertEqual(len({(p['scope'], p['key']) for p in PARAMETERS}), 39)
         for spec in PARAMETERS:
             values = config if spec['scope'] == 'root' else config['strategy']
             self.assertIn(spec['key'], values)
@@ -100,7 +100,7 @@ class ParameterTests(unittest.TestCase):
                     second = engine.Engine(start=False)
                     self.assertEqual(second.config, json.loads(disk))
                     self.assertEqual(second.config['strategy']['pet_mode'], 'keep')
-                    self.assertEqual(len(second.public_state()['parameters']['fields']), 35)
+                    self.assertEqual(len(second.public_state()['parameters']['fields']), 39)
                 finally:
                     first.stop()
                     if second:

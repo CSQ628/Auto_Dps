@@ -1,5 +1,6 @@
 import time
 from .parameters import strategy
+from .transitions import entry_conflicts
 
 MODULES={
  'box':('自动宝箱','优先清理宝箱，联动背包扩容和换装'),
@@ -95,6 +96,7 @@ def ranked_actions(scan,config,state,now=None):
             if a.get('mode')!=('sync' if recovery.get('attempts',0)==0 and recovery.get('reason')!='stalled_end' else 'stage'):continue
         if state.get('cooldowns',{}).get(a['key'],0)>now:continue
         if a['key'] in state.get('uncertain',{}):continue
+        if entry_conflicts(a,state):continue
         if a['kind']=='equipment' and not equipment_ready(a,state,now,config):continue
         if state.get('kind_cooldowns',{}).get(a['kind'],0)>now:continue
         if a['kind']=='equipment' and not a.get('empty') and a.get('gain',0)*100<options['equipment_min_gain_percent']:continue

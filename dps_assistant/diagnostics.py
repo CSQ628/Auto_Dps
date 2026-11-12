@@ -9,6 +9,11 @@ def diagnostics(state):
         instances.append({'instance': len(instances) + 1, 'sandboxed': bool(row.get('box')),
             'status': row.get('status'), 'observation_error': bool(row.get('error')),
             'loaded': snap.get('loaded'), 'stage': snap.get('stage'),
+            'snapshot_age_seconds': max(0,state.get('now',0)-snap['at']/1000) if isinstance(snap.get('at'),(int,float)) else None,
+            'battle_result': {k: (snap.get('combat',{}).get('current') or {}).get(k)
+                for k in ('sequence','level','difficulty','result','elapsed')},
+            'pending_transitions': [{k:p.get(k) for k in ('kind','mode','level','difficulty','since')}
+                for p in row.get('pending_transitions',[])],
             'characters': [{k: c.get(k) for k in ('id', 'level', 'points')} for c in snap.get('characters', [])],
             'squad': snap.get('squad'), 'battle_readiness': snap.get('battleReadiness'),
             'battle_recovery': row.get('battle_recovery'), 'record': snap.get('record'),

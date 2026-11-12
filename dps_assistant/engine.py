@@ -15,6 +15,7 @@ from .completion import milestones
 from .combat import observe_combat
 from .training import observe_experience, observe_farming
 from .recovery import observe_battle_readiness
+from .transitions import paid_entry, stage_arrived, entry_cleared
 from .platform_paths import VERSION
 from .parameters import DEFAULT_STRATEGY,normalize_config,apply_patch,public_parameters,strategy
 
@@ -72,15 +73,24 @@ class Engine:
                     action={'kind':'boss_clear','key':'boss_clear:'+str(attempt['level']),'level':attempt['level']},result=result)
         self.save()
     def settle_pending(self,key,row,state,snap):
+        for pending_key,pending in state.get('pending_results',{}).items():
+            if paid_entry(pending['action']):
+                state.setdefault('entry_uncertainty',{}).setdefault(pending_key,pending)
+        for entry_key,entry in list(state.get('entry_uncertainty',{}).items()):
+            if stage_arrived(entry['action'],snap) or entry_cleared(entry['action'],snap,entry.get('cleared_before')):
+                state['entry_uncertainty'].pop(entry_key)
+                state.get('uncertain',{}).pop(entry_key,None)
         for action_key,pending in list(state.get('pending_results',{}).items()):
             action=pending['action'];stage=snap.get('stage',{});kind=action['kind']
             confirmed=(kind=='tower' and stage.get('category')==1 and stage.get('level')==action['level'] and stage.get('running')) or (kind in ('tower_return','progress') and action.get('level') and stage.get('category')==0 and stage.get('level')==action['level'] and stage.get('running') and (kind!='progress' or action.get('phase')=='travel' or stage.get('repeat')==action.get('repeat')))
+            if kind in ('tower','tower_return','progress') and confirmed:
+                confirmed=stage_arrived(action,snap)
             if kind=='equipment':
                 character=next((c for c in snap.get('characters',[]) if c['id']==action['id']),{})
                 confirmed=any(p.get('slot')==action['slot'] and p['uid']==action['uid'] for p in character.get('equipment',[]))
             if kind=='battle_recover':
                 ready=snap.get('battleReadiness',{})
-                confirmed=ready.get('known') and not ready.get('missing') and stage.get('alivePlayers',0)>0 and stage.get('running') and stage.get('category')==action.get('category') and stage.get('level')==action.get('level')
+                confirmed=stage_arrived(action,snap)
                 if not confirmed and time.time()-pending['at']>=45:
                     state['pending_results'].pop(action_key);state['uncertain'].pop(action_key,None)
                     self.record(key,'waiting','战场恢复尚未确认，等待下一次原生恢复尝试',identity=row['identity'],action=action)
@@ -177,15 +187,24 @@ class Engine:
             row['farming']=observe_farming(snap,state,session,time.time(),self.config)
             row['battle_recovery']=observe_battle_readiness(snap,state,session,time.time())
             row['milestones']=milestones(snap,state.get('features',{}))
+            row['pending_transitions']=[{'kind':p['action']['kind'],'mode':p['action'].get('mode'),
+                'level':p['action'].get('level'),'difficulty':p['action'].get('difficulty',0),'since':p['at']}
+                for p in state.get('entry_uncertainty',{}).values()]
             row['actions']=ranked_actions(scan,self.config,state)[:24]
             # A fresh native scan invalidates completed state-specific keys; elapsed time alone never proves failure.
             current_keys={a['key'] for a in scan['actions']}
             for old_key in list(state['uncertain']):
-                if old_key not in current_keys:state['uncertain'].pop(old_key)
+                if old_key not in current_keys and old_key not in state.get('entry_uncertainty',{}):state['uncertain'].pop(old_key)
             with self.submit_gate:
                 action=choose(scan,self.config,state)
                 if action is None or self.stopping.is_set() or not self.config['instances'].get(identity,True):return
                 state['uncertain'][action['key']]=time.time();self.save()
+                if paid_entry(action):
+                    entry={'action':action,'at':time.time(),'cleared_before':snap.get('record',{}).get(
+                        'towerMaxCleared' if action['kind']=='tower' else 'maxCleared')}
+                    state.setdefault('entry_uncertainty',{})[action['key']]=entry
+                    state.setdefault('pending_results',{})[action['key']]=entry
+                    self.save()
                 command={**action,'account':snap['account'],'soulReserve':self.config['soul_reserve'],'premiumReserve':self.config['premium_reserve'],'permanentRunes':self.config['permanent_runes'],'strategy':strategy(self.config)}
                 if action['kind']=='progress' and action.get('mode')=='boss':
                     state['boss_attempt']={k:action[k] for k in ('level','ticket','ticketUid','ticketBefore')};self.save()
@@ -196,6 +215,9 @@ class Engine:
                     state['tower_attempt']={'level':action['level'],'max_stage':snap['record']['maxStage'],'cleared_before':snap['record'].get('towerMaxCleared'),'strength':strength_signature(snap),'at':time.time()};self.save()
                 result=bridge.call('execute',command)
             status=result['status'];now=time.time()
+            if paid_entry(action) and status in ('confirmed','rejected','no_change','waiting','stale'):
+                state.get('entry_uncertainty',{}).pop(action['key'],None)
+                state.get('pending_results',{}).pop(action['key'],None)
             if action['kind']=='progress' and action.get('mode')=='boss' and status not in ('pending','confirmed'):
                 state.pop('boss_attempt',None)
             state['uncertain'].pop(action['key'],None)

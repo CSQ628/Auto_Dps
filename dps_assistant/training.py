@@ -2,6 +2,7 @@
 import math
 
 from .parameters import strategy
+from .farm_efficiency import observe_efficiency
 
 
 def _number(value):
@@ -56,6 +57,7 @@ def observe_farming(snapshot, state, session, now, config=None):
     if not candidates:
         # In the tower there is no main-stage list. Keep the route for the return,
         # but never rank another farming action without a freshly verified candidate.
+        state.get('farm_efficiency', {}).pop('last', None)
         return None
     identity = str((session, snapshot.get('record', {}).get('maxCleared'), snapshot.get('squad'),
                     sorted((c['id'], c.get('level')) for c in snapshot.get('characters', [])),
@@ -68,6 +70,7 @@ def observe_farming(snapshot, state, session, now, config=None):
     if target is None:
         lower = next((p for p in candidates if p['level'] < route['level']), None)
         if lower is None:
+            state.get('farm_efficiency', {}).pop('last', None)
             return None
         route.update(**lower, since=now, reason='当前目标不可用，接续更低的免费关卡。')
     failures = {r['sequence'] for r in state.get('battle_observation', {}).get('outcomes', [])
@@ -75,12 +78,20 @@ def observe_farming(snapshot, state, session, now, config=None):
                 and r.get('result') == 'Failed' and r.get('level') == route['level']
                 and r.get('difficulty') == route['difficulty'] and r.get('observed', 0) >= route['since']}
     lower = next((p for p in candidates if p['level'] < route['level']), None)
+    fell_back = False
     if len(failures) >= options['farm_failure_limit'] and state.get('growth', {}).get('phase') == 'farm':
+        failed_key = str(route['level']) + ':' + str(route['difficulty'])
+        route['failed_stages'] = list(dict.fromkeys(route.get('failed_stages', []) + [failed_key]))
         if lower:
             old = route['level']
             route.update(**lower, since=now, reason=f'第 {old} 关练级反复失败，已自动下调；等级或主线提升后重新评估。')
             failures = set()
+            fell_back = True
         else:
             route['reason'] = '已到备用范围内最低免费关卡，继续成长并等待主线重试。'
+    previous_target = (route['level'], route['difficulty'])
+    efficiency = observe_efficiency(snapshot, state, session, now, config or {}, route, candidates, not fell_back)
+    if previous_target != (route['level'], route['difficulty']):
+        failures = set()
     return {**{k: route[k] for k in ('level', 'difficulty', 'baseline', 'reason')},
-            'failures': len(failures), 'failure_limit': options['farm_failure_limit']}
+            'failures': len(failures), 'failure_limit': options['farm_failure_limit'], 'efficiency': efficiency}

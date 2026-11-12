@@ -7,7 +7,7 @@ const keys={
  active:['recommended_actives','allow_active_refund','skill_point_reserve'],
  passive:['skill_point_reserve'],rune:['rune_priority','soul_reserve','permanent_runes','premium_reserve'],
  unlock:['action_retry_seconds'],pet_unlock:['pet_mode'],
- progress:['push_wait_seconds','push_failure_limit','farm_min_seconds','farm_retry_seconds','farm_level_offset','farm_failure_limit','farm_candidate_count'],
+ progress:['push_wait_seconds','push_failure_limit','farm_min_seconds','farm_retry_seconds','farm_level_offset','farm_failure_limit','farm_candidate_count','adaptive_farming','farm_sample_seconds','farm_recheck_seconds','farm_switch_gain_percent'],
  combine:['inventory_pressure_percent','action_cooldown_seconds'],
  decompose:['recycle_batch','recycle_normal_tier_gap','recycle_rare_tier_gap'],
  storage:['inventory_pressure_percent'],forge:['action_retry_seconds','action_cooldown_seconds'],

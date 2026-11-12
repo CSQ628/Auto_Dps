@@ -15,3 +15,14 @@ class DiagnosticTests(unittest.TestCase):
             self.assertNotIn(secret, text)
         self.assertTrue(value['instances'][0]['observation_error'])
         self.assertEqual(value['instances'][0]['battle_readiness']['missing'], [400001])
+
+    def test_transition_diagnostics_expose_result_age_and_target_without_private_keys(self):
+        raw={'now':30,'instances':[{'snapshot':{'at':25000,'combat':{'current':{
+            'sequence':7,'level':1,'difficulty':0,'result':'Cleared','elapsed':90,'account':'private-account'}}},
+            'pending_transitions':[{'kind':'progress','mode':'boss','level':10,'difficulty':0,'since':20,
+                                    'key':'private-item-uid','ticketUid':'private-item-uid'}]}]}
+        row=diagnostics(raw)['instances'][0]
+        self.assertEqual(row['snapshot_age_seconds'],5)
+        self.assertEqual(row['battle_result']['result'],'Cleared')
+        self.assertEqual(row['pending_transitions'][0]['level'],10)
+        self.assertNotIn('private-',json.dumps(row))

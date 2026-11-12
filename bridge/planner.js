@@ -172,6 +172,7 @@ function petPreference(ability,factor,farming){
 function auxiliaryOpportunities(s,dm,im,add,issues){
  const popups=openPopups(),open=popups.map(p=>fullname(A.objectClass(p)));
  const policy=popupPolicy(open);s.automationBlocked=policy.blocked;
+ s.experienceBlocked=open.length>0;
  if(policy.blocked.length)issues.push('确认或未知面板正在等待处理，自动化保留窗口并暂停提交');
  const trade=open.some(n=>n.endsWith('TradePopup')||n.endsWith('SteamInventoryPopup'));
  s.trading=trade;
