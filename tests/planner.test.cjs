@@ -76,7 +76,7 @@ test('entry checks the exact native consumption target instead of another safe s
 
 test('pressure cleanup is configurable and keeps reserved, future-tier and rare gear',()=>{
  const plain=entry('plain',1),stored=entry('stored',1,'storage'),reserved=entry('reserved',1),future=entry('future',1),rare=entry('rare',1);
- future.info.tier=3;rare.info.grade=3;
+ future.info.tier=3;rare.info.grade=5;
  const options=context.subject.retirementPlans;const all=[plain,stored,reserved,future,rare];
  assert.equal(options(all,new Set(['reserved']),2,undefined,false).length,0);
  assert.deepEqual(Array.from(options(all,new Set(['reserved']),2,undefined,true),e=>e.info.uid),['plain','stored']);
@@ -85,11 +85,11 @@ test('pressure cleanup is configurable and keeps reserved, future-tier and rare 
 
 test('manual inventory and growth panels remain open by default and resume when closed',()=>{
  for(const name of ['HeroPopup','HeroInfoPopup','StoragePopup','CubePopup']){
-  const panel='DG.UI.Popup.'+name,policy=popupPolicy([panel]);
+  const panel='DG.UI.Popup.'+name,policy=popupPolicy([panel],true,true);
   assert.deepEqual(Array.from(policy.blocked),[panel]);assert.equal(policy.cleanup,null);
   assert.equal(popupPolicy([panel],false).cleanup,panel);
  }
- const rune=popupPolicy(['DG.UI.Rune.RuneTreePopup']);assert.equal(rune.blocked.length,1);assert.equal(rune.cleanup,null);
+ const rune=popupPolicy(['DG.UI.Rune.RuneTreePopup'],true,true);assert.equal(rune.blocked.length,1);assert.equal(rune.cleanup,null);
  const closed=popupPolicy([]);assert.equal(closed.blocked.length,0);assert.equal(closed.cleanup,null);
  const mixed=popupPolicy(['DG.UI.Popup.HeroPopup','DG.UI.Popup.OfflineRewardPopup']);assert.equal(mixed.offline,false);
 });
@@ -99,4 +99,19 @@ test('non-equipment fusion uses an exact tier group instead of overlapping outpu
  assert.equal(fusionPlans([item],[recipe],21).length,0);
  assert.equal(fusionPlans([item],[{...recipe,MinTier:6,RequireCubeLevel:30}],29).length,0);
  assert.equal(fusionPlans([item],[{...recipe,MinTier:6,RequireCubeLevel:30}],30).length,1);
+});
+
+test('inspection keeps the panel while blocking only conflicting submissions',()=>{
+ vm.runInContext('globalThis.panelBlock=panelActionBlocked;',context);
+ for(const type of ['StoragePopup','HeroPopup','CubePopup']){
+  const panel='DG.UI.Popup.'+type,p=context.subject.popupPolicy?context.subject.popupPolicy([panel]):popupPolicy([panel]);
+  assert.equal(p.blocked.length,0);assert.equal(p.cleanup,null);assert.equal(p.manual.length,1);
+  assert.equal(context.panelBlock('progress',p.manual),true);assert.equal(context.panelBlock('combine',p.manual),true);
+ }
+ assert.equal(context.panelBlock('rune',['DG.UI.Popup.StoragePopup']),false);
+ assert.equal(context.panelBlock('active',['DG.UI.Popup.StoragePopup']),false);
+ assert.equal(context.panelBlock('equipment',['DG.UI.Popup.StoragePopup']),true);
+ assert.equal(context.panelBlock('active',['DG.UI.Popup.HeroPopup']),true);
+ assert.equal(context.panelBlock('rune',['DG.UI.Rune.RuneTreePopup']),true);
+ assert.equal(context.panelBlock('equipment',[]),false);
 });

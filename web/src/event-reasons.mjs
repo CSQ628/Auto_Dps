@@ -1,4 +1,5 @@
 const reasons={
+ manual_panel_conflict:'当前手动窗口与此操作冲突，关闭窗口后恢复',sort_protected_stack:'此页有受保护的可堆叠物品，保留物品标识并等待手动整理',sort_conservation_failed:'排序后的物品核对未通过，已暂停相关自动化',item_drag_active:'正在拖拽物品，放下后恢复',
  inventory_full:'背包暂无空位，等待安全腾位',storage_full:'已开放仓库暂无空位，等待安全整理',storage_source_changed:'物品所在容器已变化，重新规划存取',
  storage_swap_changed:'交换物品状态已变化，重新检查仓库取料',protected_or_missing_item:'物品受保护或已移动，重新检查',
  user_item_operation:'正在进行物品操作，等待操作结束',user_popup_open:'游戏面板尚未关闭，等待面板处理完成',

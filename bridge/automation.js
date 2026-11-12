@@ -104,6 +104,7 @@ function opportunityScanFresh(input={}){
    if(count>0&&s.inventory.count<s.inventory.capacity)add('box','box:'+grade+':'+s.record.boxes,'开启战利品宝箱',99,{grade,count});
  }
  inventoryOpportunities(s,dm,im,add,issues,options);
+ if(options.auto_sort_items)for(const plan of itemSortPlans(im,options.modules.storage,options.sort_cooldown_seconds))add('sort',plan.key,'物品处理完成，使用系统排序整理'+(plan.place==='inventory'?'背包':'仓库第 '+(plan.tab+1)+' 页'),20,plan);
  const allRunes=list(call(dm,'GetAllRunes'));
  const byRune=new Map(allRunes.map(r=>[read(r,'ID'),r])),investment=new Map(),runeLevels=new Map(allRunes.map(r=>[read(r,'ID'),call(rp,'GetLevel',[read(r,'ID')])]));
  // Invest in the real prerequisite graph so useful unlocks do not wait forever behind cheap leaves.
@@ -150,7 +151,7 @@ function opportunityScanFresh(input={}){
  s.sync.backlogged=s.sync.queue>100;
  if(s.sync.backlogged)issues.push('原生同步积压 '+s.sync.queue+' 条：成长消费等待同步，免费练级与入场保护继续');
  if(s.sync.blocked)issues.push('原生同步当前阻止奖励结算，等待游戏恢复');
- return jsonSafe({snapshot:s,actions:actions.sort((a,b)=>b.priority-a.priority),issues});
+ return jsonSafe({snapshot:s,actions:actions.filter(a=>!s.manualBlockedKinds.includes(a.kind)).sort((a,b)=>b.priority-a.priority),issues});
 }
 function executeAction(cmd){
  const options=bridgeStrategy(cmd.strategy),scan=opportunityScan(options);
@@ -158,12 +159,13 @@ function executeAction(cmd){
  if(scan.snapshot.automationBlocked?.length)return {status:'waiting',reason:'native_modal_active'};
  const action=scan.actions.find(a=>a.key===cmd.key&&a.kind===cmd.kind);
  if(!action)return {status:'stale',reason:'native_prerequisite_changed'};
+ if(scan.snapshot.manualBlockedKinds?.includes(action.kind)||panelActionBlocked(action.kind,scan.snapshot.manualPanels))return {status:'waiting',reason:'manual_panel_conflict'};
  if(['tower','progress'].includes(action.kind)&&scan.snapshot.battleReadiness?.known&&(scan.snapshot.battleReadiness.syncRunning||scan.snapshot.battleReadiness.syncPending))return {status:'waiting',reason:'native_squad_transition_active'};
  if(scan.snapshot.sync.blocked)return {status:'waiting',reason:'native_sync_blocked'};
  const recovery=action.freeEntry===true&&(['tower_return','battle_recover'].includes(action.kind)||action.kind==='progress'&&['guard','farm'].includes(action.mode));
  if(scan.snapshot.connection?.online===false&&!recovery)return {status:'waiting',reason:'native_offline'};
  if(scan.snapshot.sync.backlogged&&!recovery)return {status:'waiting',reason:'native_sync_backlog'};
- if(scan.snapshot.trading&&(['equipment','combine','decompose','forge','refine','deposit','withdraw','tower','battle_recover'].includes(action.kind)||action.kind==='progress'&&action.mode==='boss'))return {status:'waiting',reason:'trade_panel_active'};
+ if(scan.snapshot.trading&&(['equipment','combine','decompose','forge','refine','deposit','withdraw','sort','tower','battle_recover'].includes(action.kind)||action.kind==='progress'&&action.mode==='boss'))return {status:'waiting',reason:'trade_panel_active'};
  if(action.cost){
   const cost=action.cost,allowed=cost.goods===201?scan.snapshot.currencies.soul-cost.amount>=(cmd.soulReserve||0):cost.goods===202&&action.kind==='rune'&&action.permanent&&cmd.permanentRunes===true&&scan.snapshot.currencies.premium-cost.amount>=Math.max(0,cmd.premiumReserve??2);
   if(!Number.isFinite(cost.amount)||cost.amount<0||!allowed)return {status:'waiting',reason:'budget_changed'};
@@ -192,6 +194,7 @@ function executeAction(cmd){
   call(gm,'GoToStage',[0,level,difficulty]);return {status:'pending',level,difficulty};
  }
  case 'deposit':case 'withdraw':return {...guardedStorageAction(action,scan.snapshot.characters),action};
+ case 'sort':return {...sortItemsAction(action,scan.snapshot.characters),action};
  case 'forge':return {...guardedItemAction(()=>forgeAction(action),scan.snapshot.characters),action};
  case 'refine':return {...guardedItemAction(()=>refineAction(action),scan.snapshot.characters),action};
  case 'combine':case 'decompose':return {...guardedItemAction(()=>cubeAction(action),scan.snapshot.characters),action};

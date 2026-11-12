@@ -3,8 +3,8 @@ from .platform_paths import VERSION
 from .policy import MODULES
 
 STATUSES = frozenset(('confirmed','submitted','pending','no_change','stale','rejected','error','waiting'))
-KINDS = frozenset(MODULES) | {'deposit','withdraw','skill_refund','skill_equip','skill_unequip','pet_equip','formation','mail_open','mail_claim','mail_close','offline_close','tower_return','battle_recover'}
-REASONS = frozenset('user_item_operation user_popup_open view_not_ready cube_in_use native_cube_busy native_tier_not_ready native_material_not_reserved autofill_contains_protected_material native_recipe_not_ready native_preparation_failed native_cleanup_incomplete protected_or_missing_material tower_repeat_not_disabled inventory_full storage_full storage_source_changed storage_swap_changed protected_or_missing_item'.split())
+KINDS = frozenset(MODULES) | {'deposit','withdraw','sort','skill_refund','skill_equip','skill_unequip','pet_equip','formation','mail_open','mail_claim','mail_close','offline_close','tower_return','battle_recover'}
+REASONS = frozenset('user_item_operation user_popup_open view_not_ready cube_in_use native_cube_busy native_tier_not_ready native_material_not_reserved autofill_contains_protected_material native_recipe_not_ready native_preparation_failed native_cleanup_incomplete protected_or_missing_material tower_repeat_not_disabled inventory_full storage_full storage_source_changed storage_swap_changed protected_or_missing_item sort_conservation_failed'.split())
 
 def safe_reason(value):
     return value if value in REASONS else 'other_native_condition' if value else None
@@ -39,8 +39,9 @@ def diagnostics(state):
             'connection': snap.get('connection'), 'sync': snap.get('sync'),
             'bridge_source_hash': snap.get('bridgeSourceHash'),
             'inventory': {k:snap.get('inventory',{}).get(k) for k in ('count','capacity')},
-            'storage': {k:snap.get('storage',{}).get(k) for k in ('count','capacity','safeItems','tradable')},
-            'inventory_flow': {k:snap.get('inventoryFlow',{}).get(k) for k in ('movable','consumable','protectedMaterials','blockedTransfers','reservedEquipment','storageFull','staging','swapping','blocked')},
+            'storage': {k:snap.get('storage',{}).get(k) for k in ('count','capacity','safeItems','tradable','pressure')},
+            'storage_tabs': [{k:t.get(k) for k in ('id','open','count','capacity')} for t in snap.get('storage',{}).get('tabs',[])],
+            'inventory_flow': {k:snap.get('inventoryFlow',{}).get(k) for k in ('movable','consumable','protectedMaterials','blockedTransfers','reservedEquipment','storageFull','staging','swapping','blocked','waitingConditions','recipeReserved')},
             'combining': {k:snap.get('combining',{}).get(k) for k in ('groups','ready','warehousePending','needSpace','warehouseMaterials')},
             'recycling': {k:snap.get('recycling',{}).get(k) for k in ('reservedEquipment','obsolete','inventory','storage','planned','pressureCleanup')},
             'feature_confirmations': {k: v.get('confirmed', 0) for k, v in row.get('feature_evidence', {}).items() if k in KINDS},

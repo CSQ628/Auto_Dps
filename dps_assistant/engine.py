@@ -9,7 +9,8 @@ import threading
 import time
 import zipfile
 from .storage import DATA,atomic_json,load_json,event,recent_events
-from .runtime import Bridge,BridgeStarting,BridgeFailure,BRIDGE_STARTUP_SECONDS,BRIDGE_LISTENER_SECONDS,transport_error,bridge_error_message,discover,launch
+from .connections import game_executable,live_process,candidates
+from .runtime import box_for,Bridge,BridgeStarting,BridgeFailure,BRIDGE_STARTUP_SECONDS,BRIDGE_LISTENER_SECONDS,transport_error,bridge_error_message,discover,launch
 from .policy import MODULES,choose,ranked_actions,module_for,strength_signature,observe_growth
 from .completion import milestones
 from .combat import observe_combat
@@ -30,6 +31,7 @@ class Engine:
         self.config={**copy.deepcopy(DEFAULT),**self.config};self.config['modules']={**DEFAULT['modules'],**self.config.get('modules',{})};self.config=normalize_config(self.config)
         self.preferences=load_json(DATA/'preferences.json',{})
         self.preferences={'noticeAccepted':self.preferences.get('noticeAccepted') is True}
+        self.connection=load_json(DATA/'connection.json',{});self.manual_bindings={}
         self.durable=load_json(DATA/'scheduler.json',{});self.instances={};self.bridges={};self.jobs={}
         self.events=recent_events();self.started=time.time();self.pool=ThreadPoolExecutor(max_workers=8,thread_name_prefix='dps-instance')
         self.thread=threading.Thread(target=self.loop,daemon=True)
@@ -120,11 +122,43 @@ class Engine:
             updated=apply_patch(self.config,value)
             atomic_json(DATA/'config.json',updated);self.config=updated
         return self.config
+    def connection_state(self):
+        found=discover()
+        with self.lock:return candidates(found,self.connection.get('game_path',''))
+    def bind(self,value):
+        if not isinstance(value,dict):raise ValueError('连接请求需要是对象')
+        if set(value)=={'path'}:
+            executable=game_executable(value['path'])
+            with self.submit_gate,self.lock:
+                connection={**self.connection,'game_path':executable}
+                atomic_json(DATA/'connection.json',connection);self.connection=connection
+            return {'status':'saved','path':executable,'message':'游戏目录已保存。自动启动使用此目录；运行中的游戏会继续自动接入。'}
+        if set(value) not in ({'pid'},{'pid','created'}):raise ValueError('请选择一个运行中的实例，或填写游戏目录')
+        identity=live_process(value['pid'],value.get('created'));identity['box']=box_for(identity['pid'])
+        with self.submit_gate,self.lock:
+            existing=self.instances.get(str(identity['pid']))
+            if existing and existing['created']==identity['created']:
+                if existing.get('identity'):
+                    updated=copy.deepcopy(self.config);updated['instances'][existing['identity']]=True
+                    atomic_json(DATA/'config.json',updated);self.config=updated
+                existing['binding']='manual'
+            self.manual_bindings[str(identity['pid'])]=identity
+        return {'status':'connecting','pid':identity['pid'],'created':identity['created'],
+                'message':'已绑定此游戏进程，正在读取账号与原生状态。同一账号仍只允许一个控制实例。'}
     def loop(self):
         last_launch={}
         while not self.stopping.is_set():
             try:
-                found=discover();live={str(p['pid']) for p in found}
+                found=discover()
+                with self.lock:manual=list(self.manual_bindings.items())
+                found_by_pid={str(p['pid']):p for p in found}
+                for key,binding in manual:
+                    try:
+                        current=live_process(binding['pid'],binding['created']);current['box']=box_for(current['pid'])
+                        found_by_pid[key]=current
+                    except ValueError:
+                        with self.lock:self.manual_bindings.pop(key,None)
+                found=list(found_by_pid.values());live=set(found_by_pid)
                 boxes={p['box'] for p in found}
                 remembered=sorted(set(self.config['managed_boxes']) | {b for b in boxes if b})
                 if remembered!=self.config['managed_boxes']:
@@ -132,7 +166,7 @@ class Engine:
                 if self.config['auto_launch'] and self.config['running']:
                     for box in ['',*remembered]:
                         if box not in boxes and time.time()-last_launch.get(box,0)>strategy(self.config)['launch_retry_seconds']:
-                            last_launch[box]=time.time();launch(box);self.record('system','submitted','启动 DPS · '+(box or '主实例'))
+                            last_launch[box]=time.time();launch(box,self.connection.get('game_path'));self.record('system','submitted','启动 DPS · '+(box or '主实例'))
                 for identity in found:
                     key=str(identity['pid'])
                     existing=self.bridges.get(key)
@@ -142,6 +176,7 @@ class Engine:
                         if key in self.jobs and not self.jobs[key].done():continue
                     with self.lock:
                         row=self.instances.setdefault(key,{'id':key,**identity,'name':'DPS · '+(identity['box'] or '主实例'),'status':'connecting','snapshot':None,'actions':[],'confirmed':0})
+                    if key in self.manual_bindings:row['binding']='manual'
                     # Let Unity and Steam finish initial loading before attaching a native bridge.
                     if time.time()-identity['created']<15:continue
                     if key not in self.bridges:

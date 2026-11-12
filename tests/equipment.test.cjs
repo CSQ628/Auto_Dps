@@ -138,6 +138,13 @@ test('future reservations retain the best next-level item per slot instead of ev
  assert.deepEqual([...reserved],['next-best']);
 });
 
+test('future gear without an actual score improvement does not accumulate as reserved equipment',()=>{
+ const f=fixture(),chars=[f.character(1,[f.item('current',50)])];chars[0].level=19;
+ f.inv.items=[f.item('future-weaker',20,[0],{underLevel:true,get_EquipmentConfig(){return {EquipPart:0,RequireLevel:20};}})];
+ f.gear.get(1).CanAccept=()=>false;const reserved=new Set();f.equipmentPlans(f.im,chars,[],[],reserved);
+ assert.equal(reserved.size,0);
+});
+
 
 test('equipment guard permits only the two expected swap positions and preserves trade attributes',()=>{
  const f=fixture(),old=f.item('old-trade',1,[0],{config:{Tradable:true}}),upgrade=f.item('trade-upgrade',10,[0],{config:{Tradable:true}}),other=f.item('other-trade',1,[1],{config:{Tradable:true}});

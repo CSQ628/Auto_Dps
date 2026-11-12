@@ -80,8 +80,9 @@ def discover():
             info=p.as_dict(attrs=['name','exe','create_time'])
             if (info['name'] or '').lower()!='dps.exe' or not info['exe']:continue
             if not valid_game(info['exe']):continue
-            GAME=Path(info['exe']).resolve()
-            out.append({'pid':p.pid,'created':info['create_time'],'box':box_for(p.pid),'exe':info['exe']})
+            box=box_for(p.pid)
+            if not box and (GAME is None or not GAME.is_file()):GAME=Path(info['exe']).resolve()
+            out.append({'pid':p.pid,'created':info['create_time'],'box':box,'exe':info['exe']})
         except (psutil.Error,OSError):continue
     return out
 
@@ -197,8 +198,11 @@ def backup_save(identity,directory):
     atomic_json(target/'assistant-backup.json',{'identity':identity,'source':str(src),'created':time.time()})
     return {'status':'created','path':str(target)}
 
-def launch(box=''):
+def launch(box='',game_path=None):
     global GAME
+    if game_path:
+        from .connections import game_executable
+        GAME=Path(game_executable(game_path))
     if GAME is None or not GAME.is_file():GAME=find_game()
     if GAME is None:raise RuntimeError('未找到已安装的 DPS 游戏，请先从 Steam 启动游戏；助手会自动接入。')
     args=[str(GAME)]

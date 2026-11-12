@@ -21,7 +21,7 @@ MODULES={
  'ui_cleanup':('无人值守接续','默认保留手动面板，可设置无人值守收起，交易面板保持等待'),
 }
 
-def module_for(kind):return {'formation':'unlock','pet_equip':'pet_unlock','skill_equip':'active','skill_refund':'active','skill_unequip':'active','deposit':'storage','withdraw':'storage','mail_open':'mail','mail_claim':'mail','mail_close':'mail','offline_close':'mail','tower_return':'progress','battle_recover':'ui_cleanup'}.get(kind,kind)
+def module_for(kind):return {'formation':'unlock','pet_equip':'pet_unlock','skill_equip':'active','skill_refund':'active','skill_unequip':'active','deposit':'storage','withdraw':'storage','sort':'ui_cleanup','mail_open':'mail','mail_claim':'mail','mail_close':'mail','offline_close':'mail','tower_return':'progress','battle_recover':'ui_cleanup'}.get(kind,kind)
 
 def affordable(action,snapshot,config):
     cost=action.get('cost')
@@ -80,6 +80,7 @@ def ranked_actions(scan,config,state,now=None):
     offline=scan['snapshot'].get('connection',{}).get('online') is False
     available=[]
     for a in scan['actions']:
+        if a['kind'] in scan['snapshot'].get('manualBlockedKinds',[]):continue
         # Free recovery must remain available while reward mutations wait for native sync.
         # The bridge recomputes the no-ticket prerequisite before it accepts this flag.
         if (backlogged or offline) and not (a.get('freeEntry') is True and
@@ -122,6 +123,15 @@ def ranked_actions(scan,config,state,now=None):
         # A bounded, native-approved tower attempt must get a turn between boss/farm cycles.
         if a['kind']=='tower':a['priority']=max(a['priority'],109)
         available.append(a)
+    # Complete native-approved recipes before recycling, regardless of scheduler aging.
+    if any(a['kind']=='combine' or a['kind']=='withdraw' and a.get('purpose')=='combine' for a in available):
+        available=[a for a in available if a['kind']!='decompose']
+    item_work={'box','equipment','combine','decompose','forge','refine','deposit','withdraw'}
+    if any(a['kind'] in item_work for a in available):
+        available=[a for a in available if a['kind']!='sort']
+    else:
+        for a in available:
+            if a['kind']=='sort':a['priority']=108
     # Resolve equal priority in favor of a proven gear upgrade before opening more boxes.
     # Rotate within equipment only; old timestamps must never demote all heroes below boxes.
     def rank(a):

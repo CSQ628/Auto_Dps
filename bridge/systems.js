@@ -82,7 +82,7 @@ function equipmentPlans(im,characters,squad=[],diagnostics=[],reserved=new Set()
       if(read(config,'EquipPart')!==slot)continue;
       const requireLevel=read(config,'RequireLevel'),uid=call(candidate.item,'get_Uid');
       if(!Number.isInteger(requireLevel)||!Number.isFinite(character.level)||requireLevel<=character.level)reserved.add(uid);
-      else future.push({uid,requireLevel,score:scorer.score(slot,candidate.item)});
+      else{const score=scorer.score(slot,candidate.item);if(!Number.isFinite(score)||score-scorer.base>Math.max(1,Math.abs(scorer.base))*1e-6)future.push({uid,requireLevel,score});}
       continue;
      }
      if(!call(equipment,'CanAccept',[slot,ref(candidate.item)]))continue;detail.accepted++;slotDetail.accepted++;
@@ -129,9 +129,9 @@ function equipAction(action,minGainPercent=0){
  const after=list(call(equipment,'get_Has'))[action.slot];
  return {status:ok&&after&&call(after,'get_Uid')===action.uid?'confirmed':ok?'pending':'rejected',uid:action.uid,id:action.id,slot:action.slot,previousUid:action.previousUid,source:entry.place,score,previousScore:base,scoring:'native_set'};
 }
-function storageEmptyIndex(storage){
+function storageEmptyIndex(storage,item=null){
  const perTab=call(storage,'get_SlotCountPerTab');
- return list(call(storage,'get_Has')).findIndex((p,index)=>(!p||p.isNull())&&call(storage,'IsTabUnlocked',[Math.floor(index/perTab)]));
+ return list(call(storage,'get_Has')).findIndex((p,index)=>(!p||p.isNull())&&call(storage,'IsTabUnlocked',[Math.floor(index/perTab)])&&(!item||call(storage,'CanAccept',[index,ref(item)])));
 }
 function storageAction(action){
  const im=single('DG.Item.Manager.ItemManager'),entry=containerEntries(im).find(e=>call(e.item,'get_Uid')===action.uid);
@@ -145,7 +145,7 @@ function storageAction(action){
   if(action.kind!=='withdraw'||!swap||!canMoveStoredItem(im,swap.item))return {status:'stale',reason:'storage_swap_changed'};
  }
  if(action.kind==='deposit'&&entry.place==='inventory'){
-  const storage=call(im,'get_Storage'),index=storageEmptyIndex(storage);
+  const storage=call(im,'get_Storage'),index=storageEmptyIndex(storage,entry.item);
   if(index<0)return {status:'waiting',reason:'storage_full'};
   // TryMoveToStorage can merge stacks and retire a UID. Explicit empty-slot exchange preserves identity.
   ok=call(im,'TryExchange',[ref(entry.container),entry.index,ref(storage),index]);
@@ -160,7 +160,7 @@ function storageAction(action){
 }
 function protectedPositions(im,characters,watched=[]){
  const watch=new Set(watched);
- const fingerprint=(p,place,index)=>({tradable:read(call(p,'get_Config'),'Tradable'),uid:call(p,'get_Uid'),id:call(p,'get_ConfigID'),place,index,count:call(p,'get_Count'),locked:call(p,'get_IsLocked'),sockets:list(call(p,'get_Sockets')).map(s=>({index:call(s,'get_Index'),id:call(s,'get_ConfigID'),ability:call(s,'get_Ability'),value:call(s,'get_Value')}))});
+ const fingerprint=(p,place,index)=>({tradable:read(call(p,'get_Config'),'Tradable'),uid:call(p,'get_Uid'),id:call(p,'get_ConfigID'),place,index,count:call(p,'get_Count'),locked:call(p,'get_IsLocked'),confirmed:call(p,'get_IsServerConfirmed'),sockets:list(call(p,'get_Sockets')).map(s=>({index:call(s,'get_Index'),id:call(s,'get_ConfigID'),ability:call(s,'get_Ability'),value:call(s,'get_Value')}))});
  const result=containerEntries(im).filter(e=>isTradable(e.item)||watch.has(call(e.item,'get_Uid'))).map(e=>fingerprint(e.item,e.place,e.index));
  for(const c of characters)list(call(call(im,'GetEquipment',[c.id]),'get_Has')).forEach((p,index)=>{if(p&&isTradable(p))result.push(fingerprint(p,'equipment:'+c.id,index));});
  return result;
@@ -187,7 +187,7 @@ function guardedItemAction(fn,characters,moves=[],watched=[]){
 function guardedStorageAction(action,characters){
  const im=single('DG.Item.Manager.ItemManager'),entries=containerEntries(im),entry=entries.find(e=>call(e.item,'get_Uid')===action.uid),moves=[];
  const watched=entries.filter(e=>protectedItem(im,e.item)||call(e.item,'get_Uid')===action.uid||call(e.item,'get_Uid')===action.swapUid).map(e=>call(e.item,'get_Uid'));
- if(entry&&action.kind==='deposit'&&entry.place==='inventory')moves.push({uid:action.uid,place:'storage',index:storageEmptyIndex(call(im,'get_Storage'))});
+ if(entry&&action.kind==='deposit'&&entry.place==='inventory')moves.push({uid:action.uid,place:'storage',index:storageEmptyIndex(call(im,'get_Storage'),entry.item)});
  if(entry&&action.kind==='withdraw'&&entry.place==='storage'){
   if(action.swapUid){
    const swap=entries.find(e=>call(e.item,'get_Uid')===action.swapUid&&e.place==='inventory');
@@ -195,6 +195,63 @@ function guardedStorageAction(action,characters){
   }else moves.push({uid:action.uid,place:'inventory',index:call(call(im,'get_Inventory'),'FindEmptyIndex')});
  }
  return guardedItemAction(()=>storageAction(action),characters,moves,watched);
+}
+// Sort one native container/page at a time, after useful inventory work. No tab switching.
+const itemSortMarks=new Map();
+function itemSortPlans(im,withStorage=true,cooldown=30){
+ const entries=containerEntries(im,withStorage),storage=call(im,'get_Storage'),perTab=call(storage,'get_SlotCountPerTab');
+ const buckets=[{place:'inventory',tab:null},...(!withStorage?[]:Array.from({length:call(storage,'get_TabCount')},(_,tab)=>({place:'storage',tab})).filter(p=>call(storage,'IsTabUnlocked',[p.tab])))];
+ return buckets.flatMap(p=>{
+  const rows=entries.filter(e=>e.place===p.place&&(p.tab===null||Math.floor(e.index/perTab)===p.tab));
+  if(!rows.length)return [];
+  const signature=keyHash(rows.map(e=>e.index+':'+call(e.item,'get_Uid')+':'+call(e.item,'get_Count')).join('|'));
+  const bucket=p.place+':'+p.tab,mark=itemSortMarks.get(bucket);
+  return mark&&(mark.signature===signature||Date.now()-mark.at<cooldown*1000)?[]:[{...p,signature,bucket,key:'sort:'+bucket+':'+signature}];
+ });
+}
+function sortItemsAction(action,characters=[]){
+ const im=single('DG.Item.Manager.ItemManager');
+ if(call(call(im,'get_Input'),'get_IsHolding')||!call(call(im,'get_Cube'),'get_IsEmpty'))return {status:'waiting',reason:'user_item_operation'};
+ if(call(single('DG.UI.PopupLayoutHandler'),'get_AnyPopupOpen'))return {status:'waiting',reason:'user_popup_open'};
+ const storage=call(im,'get_Storage'),perTab=call(storage,'get_SlotCountPerTab');
+ if(action.place!=='inventory'&&(action.place!=='storage'||!Number.isInteger(action.tab)||action.tab<0||action.tab>=call(storage,'get_TabCount')||!call(storage,'IsTabUnlocked',[action.tab])))return {status:'stale',reason:'storage_source_changed'};
+ const entries=containerEntries(im),watched=entries.map(e=>call(e.item,'get_Uid'));
+ const scope=entries.filter(e=>e.place===action.place&&(action.place==='inventory'||Math.floor(e.index/perTab)===action.tab));
+ const strict=new Set(entries.filter(e=>call(e.item,'get_MaxCount')<=1||protectedItem(im,e.item)).map(e=>call(e.item,'get_Uid')));
+ // Native sort merges stacks. Never let that retire a protected UID, even if the game permits it.
+ for(let i=0;i<scope.length;i++)for(let j=i+1;j<scope.length;j++){
+  const a=scope[i].item,b=scope[j].item;
+  if(call(a,'get_ConfigID')===call(b,'get_ConfigID')&&(strict.has(call(a,'get_Uid'))||strict.has(call(b,'get_Uid')))&&call(a,'CanStackWith',[ref(b)]))return {status:'waiting',reason:'sort_protected_stack'};
+ }
+ const before=protectedPositions(im,characters,watched),positionsBefore=new Map(before.map(p=>[p.uid,p]));
+ function totals(rows){
+  const sums=new Map();for(const p of rows){
+   if(!Number.isSafeInteger(p.count)||p.count<=0)throw Error('invalid_stack_count');
+   const key=JSON.stringify([p.place,p.place==='storage'?Math.floor(p.index/perTab):null,p.id,p.tradable,p.locked,p.confirmed,p.sockets]);
+   const count=(sums.get(key)||0)+p.count;if(!Number.isSafeInteger(count))throw Error('invalid_stack_total');sums.set(key,count);
+  }return JSON.stringify([...sums].sort((a,b)=>a[0].localeCompare(b[0])));
+ }
+ const expectedTotals=totals(before);let error;
+ try{
+  if(action.place==='inventory'){const inventory=call(im,'get_Inventory');call(inventory,'Sort');call(inventory,'Draw');}
+  else{call(storage,'SortTab',[action.tab]);call(storage,'Draw');}
+ }catch(e){error=e;}
+ // Include newly created UIDs so an unexpected addition cannot evade the conservation check.
+ const afterEntries=containerEntries(im),after=protectedPositions(im,characters,afterEntries.map(e=>call(e.item,'get_Uid'))),positions=new Map(after.map(e=>[e.uid,e]));
+ const moves=before.flatMap(p=>{
+  const next=positions.get(p.uid),inScope=p.place===action.place&&(action.place==='inventory'||Math.floor(p.index/perTab)===action.tab);
+  return next&&inScope&&next.place===p.place&&(action.place==='inventory'||Math.floor(next.index/perTab)===action.tab)?[{uid:p.uid,place:p.place,index:next.index}]:[];
+ });
+ const strictBefore=before.filter(p=>strict.has(p.uid)||!positionsBefore.has(p.uid)||p.place.startsWith('equipment:')||p.place!==action.place||(action.place==='storage'&&Math.floor(p.index/perTab)!==action.tab));
+ const changed=checkPreserved(strictBefore,after,moves);
+ if(expectedTotals!==totals(after))changed.push({reason:'item_totals_changed'});
+ if(error&&!changed.length)throw error;
+ if(changed.length)return {status:'waiting',reason:'sort_conservation_failed',protectedChecked:strictBefore.length,protectedChanged:changed};
+ // Store the post-sort layout so an unchanged container never sorts every scan.
+ const rows=containerEntries(im).filter(e=>e.place===action.place&&(action.place==='inventory'||Math.floor(e.index/perTab)===action.tab));
+ const signature=keyHash(rows.map(e=>e.index+':'+call(e.item,'get_Uid')+':'+call(e.item,'get_Count')).join('|'));
+ itemSortMarks.set(action.bucket,{signature,at:Date.now()});
+ return {status:'confirmed',source:'native_system_sort',place:action.place,tab:action.tab,protectedChecked:strictBefore.length,protectedChanged:[],mergedStacks:before.length-after.length,moved:moves.filter(p=>before.find(b=>b.uid===p.uid)?.index!==p.index).length};
 }
 function guardedEquipmentAction(action,characters,minGainPercent=0){
  const im=single('DG.Item.Manager.ItemManager'),entry=containerEntries(im).find(e=>call(e.item,'get_Uid')===action.uid),moves=[];

@@ -505,7 +505,7 @@ class SchedulerTests(unittest.TestCase):
             def as_dict(self,attrs):return {'name':'DPS.exe','exe':str(game),'create_time':123}
         with patch.object(runtime,'GAME',None),patch.object(runtime.psutil,'process_iter',return_value=[Process()]),patch.object(runtime,'box_for',return_value='box'):
             self.assertEqual(runtime.discover(),[{'pid':99,'created':123,'box':'box','exe':str(game)}])
-            self.assertEqual(runtime.GAME,game.resolve())
+            self.assertIsNone(runtime.GAME)
 
     def test_sandbox_multi_instance_config_preserves_host_and_other_options(self):
         from dps_assistant import runtime

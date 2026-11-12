@@ -15,7 +15,8 @@ def choice(key,label,default,group,options,hint=''):
                 options=[dict(value=v,label=t) for v,t in options],hint=hint)
 
 PARAMETERS = [
- switch('preserve_open_panels','保留手动打开的背包等面板',True,'general','开启时保留背包、英雄、仓库、魔方和符文窗口，并暂停助手提交操作；手动关闭窗口后自动恢复。关闭后允许无人值守收起这些窗口。'),
+ switch('preserve_open_panels','保留手动打开的背包等面板',True,'general','开启后不自动关闭你正在查看的背包、仓库、英雄和符文窗口；助手继续不冲突的成长。关闭后允许无人值守收起这些窗口。'),
+ switch('pause_on_manual_panels','查看游戏窗口时暂停全部操作',False,'general','默认关闭：例如查看仓库时，技能和符文仍可成长，仓库物品和切场会等待。开启后，查看任一成长窗口都会暂停全部提交，关闭窗口自动恢复。'),
  number('interval','巡检间隔',2.0,'general',1,60,'秒','root',.5,'各实例独立巡检。'),
  switch('auto_launch','自动启动缺失的游戏实例',True,'general','接续主实例与已识别的沙盒实例。','root'),
  number('launch_retry_seconds','游戏启动重试间隔',120,'general',30,3600,'秒'),
@@ -52,11 +53,21 @@ PARAMETERS = [
  choice('rune_priority','符文投资偏好','growth','runes',[('growth','成长优先'),('balanced','均衡成长'),('combat','战斗优先')]),
  choice('pet_mode','宠物切换偏好','auto','pets',[('auto','随练级与推进切换'),('growth','优先收益与经验'),('combat','优先战斗'),('keep','保留当前宠物')]),
  number('inventory_pressure_percent','背包整理触发占用',80,'workshop',40,100,'%',hint='联动存仓、合成和扩容优先级。'),
- switch('recycle_pressure_cleanup','空间紧张时回收普通闲置装备',True,'workshop','背包达到整理阈值或仓库已满时，回收不提升任一角色、未保留且未用于配方的当前档及低档普通装备；可交易、带镶嵌、锁定物品继续保护。'),
+ number('storage_pressure_percent','仓库整理触发占用',80,'workshop',40,100,'%',hint='统计所有已解锁仓库页；达到阈值就安排取料合成与回收，不等完全满仓。'),
+ switch('recycle_pressure_cleanup','空间紧张时回收闲置装备',True,'workshop','先合成，再回收不提升任一角色、未保留且未用于完整配方的当前档及低档装备；可交易、带镶嵌、锁定物品继续保护。'),
+ number('recycle_pressure_max_grade','空间紧张时回收品质上限',4,'workshop',1,4,'级',hint='1=Common（普通）、2=Uncommon、3=Rare（稀有）、4=Unique。默认允许回收到 Unique；5=Epic 及以上始终保留。只回收无换装价值且未被完整配方保留的装备。'),
+ switch('auto_sort_items','物品操作后系统排序',True,'workshop','合成、分解、换装与存取结束后，使用游戏系统排序整理背包和所有已解锁仓库页；保留分页和当前选中页。'),
+ number('sort_cooldown_seconds','同一背包或仓库页排序间隔',30,'workshop',5,300,'秒',hint='内容或位置没有变化时不重复排序，整理期间不抢占取料合成。'),
  number('recycle_batch','单次回收淘汰装备上限',12,'workshop',1,12,'件'),
  number('recycle_normal_tier_gap','普通装备回收落后档数',1,'workshop',1,10,'档'),
  number('recycle_rare_tier_gap','较高品质装备回收落后档数',2,'workshop',1,10,'档'),
 ]
+
+# Examples are exposed by the same schema used to validate and save parameters.
+PARAMETER_HELP = {'interval': '建议保持 2 秒：每个实例约每 2 秒检查一次，只执行当前允许的动作。数值越小检查越频繁，电脑负担也越高。', 'auto_launch': '开启后，主游戏或已记住的沙盒退出时会尝试重新启动。只想管理当前运行的游戏时可关闭；手动指定目录用于主游戏启动。', 'launch_retry_seconds': '例如 120 秒：游戏暂未打开时，两次启动尝试至少相隔 2 分钟，避免反复启动。', 'action_retry_seconds': '例如 30 秒：原生条件未满足、暂时不能执行的同一动作等 30 秒再试，其他可执行成长继续。', 'action_cooldown_seconds': '例如 5 秒：同一动作刚执行后至少等 5 秒再检查是否可重复，避免连续提交。', 'push_wait_seconds': '例如 180 秒：挑战开始后至少观察 3 分钟；失败次数也达到下方阈值才转去练级。不是每关固定等待 3 分钟。', 'push_failure_limit': '例如 2 次：主线确认失败两次且观察时长已到，才转去练级。切场中止和塔战失败不算。', 'fallback_death_limit': '仅在游戏没有提供战斗结算统计时使用。例如累计 6 次角色死亡后，再结合观察时长判断是否需要练级。', 'farm_min_seconds': '例如 180 秒：转去练级后至少打 3 分钟，避免刚换装备就立即来回切换。', 'farm_retry_seconds': '例如 600 秒：没有新成长也会在练级 10 分钟后重新挑战主线；仍需满足最短练级时间。', 'farm_level_offset': '例如最高已通关 30、设置 1：从 29 关附近选择免费可重复关卡。失败后会继续降低，收费关卡不会用来练级。', 'farm_switch_gain_percent': '例如 10%：候选练级点的实测经验每分钟至少高 10% 才切换，避免小幅波动导致来回跑。', 'tower_retry_seconds': '例如 300 秒：同层两次挑战至少相隔 5 分钟；开启下方开关时，还需要观察到战力变化。', 'tower_farm_wait_seconds': '例如 180 秒：刚转去练级后的前 3 分钟先练级，之后再评估是否挑战无限塔。设置 0 可取消这段等待。', 'equipment_hold_seconds': '例如 60 秒：已穿上的装备至少保留 1 分钟才考虑替换，避免战斗临时增益导致频繁换装。空槽仍优先补齐。', 'equipment_return_seconds': '例如 300 秒：刚换下的同一件装备，5 分钟内不再穿回，避免两件装备反复互换。', 'equipment_min_gain_percent': '例如 5%：替换已有装备时，游戏原生整套评分至少提高 5%。默认 0 接受正收益；空槽优先补齐。', 'skill_point_reserve': '例如 2：每个角色都留下 2 点不自动使用，其余点数继续学习。默认 0 表示尽量用于成长。', 'recommended_actives': '开启后按职业机制和当前解锁等级调整主动技能；关闭后保留你已装配的组合，只补空槽和升级。', 'allow_active_refund': '开启后可回收不再使用的主动技能点，供新推荐主动和被动使用；关闭后保留原投入。', 'soul_reserve': '例如 1000：购买符文后至少还剩 1000 灵魂。各账号分别计算，不会共用资源。', 'permanent_runes': '开启后允许花水晶购买游戏原生永久符文，仍遵守水晶保留数量；关闭后仅评估灵魂可购买的成长。', 'premium_reserve': '例如 2：购买永久符文后至少留下 2 水晶。想全部自行支配水晶，可关闭上方开关。', 'rune_priority': '成长优先偏向编队、背包、经验和收益；战斗优先偏向攻击与生存；均衡兼顾两者。都先满足游戏原生前置。', 'pet_mode': '自动会在练级时偏向经验收益、推进时偏向战斗。选择保留当前宠物后不会自动切换，已满足条件的宠物仍可解锁。', 'inventory_pressure_percent': '例如 46 格背包、设置 80%：达到 37 格就提高整理优先级，先合成、再存取与回收；不会等到 46 格全满。', 'storage_pressure_percent': '例如两页共 98 格、设置 80%：占用达到 79 格即安排取料合成与回收。只统计已解锁页，按每页接收规则寻找空位。', 'recycle_batch': '例如 12：每次最多分解 12 件已判定淘汰的装备；只剩 3 件符合条件时只处理 3 件。交易、锁定、镶嵌和配方保留物品不作为材料。', 'recycle_normal_tier_gap': '例如当前可用装备是 5 档、设置 1：常规回收可考虑 4 档及更早的普通闲置装备。换装候选和完整合成配方继续保留。', 'recycle_rare_tier_gap': '例如当前 5 档、设置 2：较高品质的常规回收只考虑 3 档及更早装备，给它们更多保留空间。空间紧张回收另受开关与品质上限控制。'}
+for parameter in PARAMETERS:
+    if parameter["key"] in PARAMETER_HELP:parameter["hint"]=PARAMETER_HELP[parameter["key"]]
+
 DEFAULT_STRATEGY = {p['key']:p['default'] for p in PARAMETERS if p['scope']=='strategy'}
 BY_KEY = {(p['scope'],p['key']):p for p in PARAMETERS}
 

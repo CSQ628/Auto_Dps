@@ -34,6 +34,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200);data=json.dumps(diagnostics(self.server.engine.public_state()),ensure_ascii=False,indent=2).encode('utf-8')
             self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(data)))
             self.send_header('Content-Disposition','attachment; filename=DPSAssistant-diagnostics.json');self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data);return
+        if path=='/api/connections':return self.reply(200,self.server.engine.connection_state())
         if path=='/api/health':return self.reply(200,{'app':'dps-assistant','ready':True,'transport':self.server.transport_state()})
         root=(ROOT/'web/dist').resolve();target=(root/unquote(path).lstrip('/')).resolve()
         if not target.is_relative_to(root):return self.reply(404,{'error':'not_found'})
@@ -49,6 +50,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/consent':
                 if value!={'accepted':True}:return self.reply(400,{'error':'请明确同意使用说明'})
                 return self.reply(200,{'preferences':self.server.engine.accept_notice()})
+            if self.path=='/api/bind':return self.reply(200,self.server.engine.bind(value))
             if self.path=='/api/config':return self.reply(200,{'config':self.server.engine.update(value)})
             if self.path=='/api/stop':
                 self.server.engine.update({'running':False});return self.reply(200,{'ok':True})
@@ -56,3 +58,4 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200,{'ok':True,'pid':os.getpid(),'created':psutil.Process().create_time()});threading.Thread(target=self.server.shutdown,daemon=True).start();return
             return self.reply(404,{'error':'not_found'})
         except (ValueError,TypeError,KeyError) as e:return self.reply(400,{'error':str(e)})
+        except OSError:return self.reply(500,{'error':'本机配置未能保存，请检查目录权限与磁盘空间后重试'})
