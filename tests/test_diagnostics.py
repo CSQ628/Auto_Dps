@@ -38,3 +38,18 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(value['feature_status']['decompose']['last_reason'],'native_material_not_reserved')
         self.assertEqual(value['recent_operations'][0]['reason'],'other_native_condition')
         self.assertNotIn('private-',json.dumps(value))
+
+
+    def test_inventory_diagnostics_share_counts_and_blockers_without_item_ids(self):
+        raw={'instances':[{'snapshot':{'inventory':{'count':46,'capacity':46,'uid':'private-uid'},
+            'storage':{'count':49,'capacity':49,'items':['private-uid']},
+            'inventoryFlow':{'movable':90,'protectedMaterials':5,'blocked':True,'swapUid':'private-uid'},
+            'combining':{'warehousePending':1,'needSpace':True,'uid':'private-uid'},
+            'recycling':{'obsolete':2,'allowed':['private-uid']}}}]}
+        row=diagnostics(raw)['instances'][0]
+        self.assertEqual(row['inventory']['count'],46)
+        self.assertEqual(row['storage']['capacity'],49)
+        self.assertTrue(row['inventory_flow']['blocked'])
+        self.assertTrue(row['combining']['needSpace'])
+        self.assertEqual(row['recycling']['obsolete'],2)
+        self.assertNotIn('private-',json.dumps(row))

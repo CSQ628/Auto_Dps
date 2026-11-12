@@ -186,7 +186,7 @@ function executeAction(cmd){
   if(!call(gm,'CanEnterStage',[0,level])||!entranceStatus(gm,im,0,level).safe)return {status:'waiting',reason:'main_stage_not_ready'};
   call(gm,'GoToStage',[0,level,difficulty]);return {status:'pending',level,difficulty};
  }
- case 'deposit':case 'withdraw':return {...guardedItemAction(()=>storageAction(action),scan.snapshot.characters),action};
+ case 'deposit':case 'withdraw':return {...guardedStorageAction(action,scan.snapshot.characters),action};
  case 'forge':return {...guardedItemAction(()=>forgeAction(action),scan.snapshot.characters),action};
  case 'refine':return {...guardedItemAction(()=>refineAction(action),scan.snapshot.characters),action};
  case 'combine':case 'decompose':return {...guardedItemAction(()=>cubeAction(action),scan.snapshot.characters),action};
@@ -203,7 +203,7 @@ function executeAction(cmd){
   return {status:'pending',mode:action.mode,source:'native_squad_recovery'};
  }
  case 'box':before=call(single(names.record),'get_BoxOpenCount');ok=call(single(names.drop),'TryOpen',[action.grade]);after=call(single(names.record),'get_BoxOpenCount')>before;break;
- case 'equipment':return {...guardedItemAction(()=>equipAction(action,options.equipment_min_gain_percent),scan.snapshot.characters),action};
+ case 'equipment':return {...guardedEquipmentAction(action,scan.snapshot.characters,options.equipment_min_gain_percent),action};
  case 'active':case 'passive':{
    const config=call(dm,action.kind==='active'?'GetActiveByUniqueID':'GetPassiveByUniqueID',[action.skill]);
    ok=stat(names[action.kind],'Learn',[action.id,ref(config)]);

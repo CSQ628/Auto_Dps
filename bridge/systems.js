@@ -48,7 +48,7 @@ function equipmentScorer(im,id,set,has){
  }catch(e){gcFree(handle);throw e;}
 }
 function protectedEquipped(im,p){
- return !!p&&(isTradable(p)||call(p,'get_IsLocked')||call(im,'IsInUse',[ref(p)])||!call(p,'get_IsServerConfirmed'));
+ return !!p&&(typeof read(call(p,'get_Config'),'Tradable')!=='boolean'||call(p,'get_IsLocked')||call(im,'IsInUse',[ref(p)])||!call(p,'get_IsServerConfirmed'));
 }
 function allocateEquipment(options){
  const usedItems=new Set(),usedSlots=new Set();
@@ -67,7 +67,7 @@ function equipmentPlans(im,characters,squad=[],diagnostics=[],reserved=new Set()
   const detail={id:character.id,slots:set.length,equipped:set.filter(Boolean).length,empty:set.filter(p=>!p).length,protectedSlots:0,accepted:0,upgrades:0,planned:0,status:'no_upgrade',slotDetails:[]};
   diagnostics.push(detail);
   const scorer=equipmentScorer(im,character.id,set,has);
-  if(!scorer){detail.status='score_unavailable';continue;}
+  if(!scorer){detail.status='score_unavailable';candidates.forEach(e=>reserved.add(call(e.item,'get_Uid')));continue;}
   detail.score=scorer.base;
   try{
    for(let slot=0;slot<set.length;slot++){
@@ -75,16 +75,31 @@ function equipmentPlans(im,characters,squad=[],diagnostics=[],reserved=new Set()
     const slotDetail={slot,empty:!current,candidates:matching.length,protectedCandidates:matching.filter(e=>protectedEquipmentCandidate(im,e.item)).length,accepted:0,upgrades:0,bestScore:null,status:'no_candidate'};
     detail.slotDetails.push(slotDetail);
     if(protectedEquipped(im,current)){detail.protectedSlots++;slotDetail.status='protected_equipped';continue;}
+    const future=[];
     for(const candidate of candidates){
-     if(call(equipment,'IsUnderRequireLevel',[ref(candidate.item)])&&!call(equipment,'IsWrongClass',[ref(candidate.item)]))reserved.add(call(candidate.item,'get_Uid'));
+     if(call(equipment,'IsUnderRequireLevel',[ref(candidate.item)])&&!call(equipment,'IsWrongClass',[ref(candidate.item)])){
+      const config=call(candidate.item,'get_EquipmentConfig');
+      if(read(config,'EquipPart')!==slot)continue;
+      const requireLevel=read(config,'RequireLevel'),uid=call(candidate.item,'get_Uid');
+      if(!Number.isInteger(requireLevel)||!Number.isFinite(character.level)||requireLevel<=character.level)reserved.add(uid);
+      else future.push({uid,requireLevel,score:scorer.score(slot,candidate.item)});
+      continue;
+     }
      if(!call(equipment,'CanAccept',[slot,ref(candidate.item)]))continue;detail.accepted++;slotDetail.accepted++;
      const score=scorer.score(slot,candidate.item),base=scorer.base;
      if(Number.isFinite(score)&&(slotDetail.bestScore===null||score>slotDetail.bestScore))slotDetail.bestScore=score;
-     if(!Number.isFinite(score)||score-base<=Math.max(1,Math.abs(base))*1e-6)continue;
+     if(!Number.isFinite(score)){reserved.add(call(candidate.item,'get_Uid'));continue;}
+     if(score-base<=Math.max(1,Math.abs(base))*1e-6)continue;
      reserved.add(call(candidate.item,'get_Uid'));
      if(current&&(score-base)/Math.max(1,Math.abs(base))*100<minGainPercent)continue;
      detail.upgrades++;slotDetail.upgrades++;
      options.push({uid:call(candidate.item,'get_Uid'),id:character.id,slot,score,base,gain:(score-base)/Math.max(1,Math.abs(base)),source:candidate.place,previousUid:current?call(current,'get_Uid'):null,empty:!current,order:index,scoring:'native_set'});
+    }
+    if(future.length){
+     const nearest=Math.min(...future.map(p=>p.requireLevel)),next=future.filter(p=>p.requireLevel===nearest);
+     if(next.some(p=>!Number.isFinite(p.score)))next.forEach(p=>reserved.add(p.uid));
+     else reserved.add(next.sort((a,b)=>b.score-a.score||a.uid.localeCompare(b.uid))[0].uid);
+     slotDetail.futureLevel=nearest;slotDetail.futureReserved=next.filter(p=>reserved.has(p.uid)).length;
     }
     slotDetail.status=slotDetail.upgrades?'upgrade_ready':slotDetail.accepted?'no_upgrade':matching.length===0?'no_candidate':slotDetail.protectedCandidates===matching.length?'protected_candidates':'native_rejected';
    }
@@ -114,36 +129,80 @@ function equipAction(action,minGainPercent=0){
  const after=list(call(equipment,'get_Has'))[action.slot];
  return {status:ok&&after&&call(after,'get_Uid')===action.uid?'confirmed':ok?'pending':'rejected',uid:action.uid,id:action.id,slot:action.slot,previousUid:action.previousUid,source:entry.place,score,previousScore:base,scoring:'native_set'};
 }
+function storageEmptyIndex(storage){
+ const perTab=call(storage,'get_SlotCountPerTab');
+ return list(call(storage,'get_Has')).findIndex((p,index)=>(!p||p.isNull())&&call(storage,'IsTabUnlocked',[Math.floor(index/perTab)]));
+}
 function storageAction(action){
  const im=single('DG.Item.Manager.ItemManager'),entry=containerEntries(im).find(e=>call(e.item,'get_Uid')===action.uid);
- if(!entry||protectedItem(im,entry.item))return {status:'stale',reason:'protected_or_missing_item'};
+ if(!entry||!canMoveStoredItem(im,entry.item))return {status:'stale',reason:'protected_or_missing_item'};
+ const destination=({deposit:'storage',withdraw:'inventory'})[action.kind];
+ if(!destination||entry.place===destination)return {status:'stale',reason:'storage_source_changed'};
  if(call(call(im,'get_Input'),'get_IsHolding'))return {status:'waiting',reason:'user_item_operation'};
- let ok=false;
- if(action.kind==='deposit'&&entry.place==='inventory')ok=call(im,'TryMoveToStorage',[ref(entry.container),entry.index,ref(entry.item)]);
- if(action.kind==='withdraw'&&entry.place==='storage'){
-  const inventory=call(im,'get_Inventory'),index=call(inventory,'FindEmptyIndex');
-  if(index>=0)ok=call(im,'TryExchange',[ref(entry.container),entry.index,ref(inventory),index]);
+ let ok=false,swap=null;
+ if(action.swapUid){
+  swap=containerEntries(im).find(e=>call(e.item,'get_Uid')===action.swapUid&&e.place==='inventory');
+  if(action.kind!=='withdraw'||!swap||!canMoveStoredItem(im,swap.item))return {status:'stale',reason:'storage_swap_changed'};
  }
- const after=containerEntries(im).find(e=>call(e.item,'get_Uid')===action.uid);
- return {status:ok&&after&&after.place!==entry.place?'confirmed':ok?'pending':'rejected',uid:action.uid,from:entry.place,to:after?.place,tradable:false};
+ if(action.kind==='deposit'&&entry.place==='inventory'){
+  const storage=call(im,'get_Storage'),index=storageEmptyIndex(storage);
+  if(index<0)return {status:'waiting',reason:'storage_full'};
+  // TryMoveToStorage can merge stacks and retire a UID. Explicit empty-slot exchange preserves identity.
+  ok=call(im,'TryExchange',[ref(entry.container),entry.index,ref(storage),index]);
+ }
+ if(action.kind==='withdraw'&&entry.place==='storage'){
+  const inventory=call(im,'get_Inventory'),index=swap?swap.index:call(inventory,'FindEmptyIndex');
+  if(index<0)return {status:'waiting',reason:'inventory_full'};
+  ok=call(im,'TryExchange',[ref(entry.container),entry.index,ref(inventory),index]);
+ }
+ const entries=containerEntries(im),after=entries.find(e=>call(e.item,'get_Uid')===action.uid),swapped=swap&&entries.find(e=>call(e.item,'get_Uid')===action.swapUid);
+ return {status:ok&&after?.place===destination&&(!swap||swapped?.place==='storage')?'confirmed':ok?'pending':'rejected',uid:action.uid,from:entry.place,to:after?.place,tradable:read(call(entry.item,'get_Config'),'Tradable'),...(swap?{swapUid:action.swapUid,swapTo:swapped?.place}: {})};
 }
-function protectedPositions(im,characters){
- const fingerprint=(p,place,index)=>({uid:call(p,'get_Uid'),id:call(p,'get_ConfigID'),place,index,count:call(p,'get_Count'),locked:call(p,'get_IsLocked'),sockets:list(call(p,'get_Sockets')).map(s=>({index:call(s,'get_Index'),id:call(s,'get_ConfigID'),ability:call(s,'get_Ability'),value:call(s,'get_Value')}))});
- const result=containerEntries(im).filter(e=>isTradable(e.item)).map(e=>fingerprint(e.item,e.place,e.index));
+function protectedPositions(im,characters,watched=[]){
+ const watch=new Set(watched);
+ const fingerprint=(p,place,index)=>({tradable:read(call(p,'get_Config'),'Tradable'),uid:call(p,'get_Uid'),id:call(p,'get_ConfigID'),place,index,count:call(p,'get_Count'),locked:call(p,'get_IsLocked'),sockets:list(call(p,'get_Sockets')).map(s=>({index:call(s,'get_Index'),id:call(s,'get_ConfigID'),ability:call(s,'get_Ability'),value:call(s,'get_Value')}))});
+ const result=containerEntries(im).filter(e=>isTradable(e.item)||watch.has(call(e.item,'get_Uid'))).map(e=>fingerprint(e.item,e.place,e.index));
  for(const c of characters)list(call(call(im,'GetEquipment',[c.id]),'get_Has')).forEach((p,index)=>{if(p&&isTradable(p))result.push(fingerprint(p,'equipment:'+c.id,index));});
  return result;
 }
-function checkPreserved(before,after){
- const positions=new Map(after.map(x=>[x.uid,x]));
- return before.filter(x=>!positions.has(x.uid)||JSON.stringify(positions.get(x.uid))!==JSON.stringify(x));
+function checkPreserved(before,after,moves=[]){
+ const positions=new Map(after.map(x=>[x.uid,x])),allowed=new Map(moves.map(m=>[m.uid,m]));
+ return before.filter(x=>{
+  const actual=positions.get(x.uid);if(!actual||after.filter(p=>p.uid===x.uid).length!==1)return true;
+  if(JSON.stringify(actual)===JSON.stringify(x))return false;
+  const move=allowed.get(x.uid);
+  if(!move||!Number.isInteger(actual.index)||actual.index<0)return true;
+  const index=move.index;
+  return JSON.stringify(actual)!==JSON.stringify({...x,place:move.place,index});
+ });
 }
-function guardedItemAction(fn,characters){
- const im=single('DG.Item.Manager.ItemManager'),before=protectedPositions(im,characters);let result,error;
+function guardedItemAction(fn,characters,moves=[],watched=[]){
+ const im=single('DG.Item.Manager.ItemManager'),before=protectedPositions(im,characters,watched);let result,error;
  try{result=fn();}catch(e){error=e;}
- const changed=checkPreserved(before,protectedPositions(im,characters));
+ const changed=checkPreserved(before,protectedPositions(im,characters,watched),moves);
  if(error&&!changed.length)throw error;
  if(error)result={status:'waiting',reason:'protected_state_changed_after_error',error:String(error)};
  return {...result,protectedChecked:before.length,protectedChanged:changed};
+}
+function guardedStorageAction(action,characters){
+ const im=single('DG.Item.Manager.ItemManager'),entries=containerEntries(im),entry=entries.find(e=>call(e.item,'get_Uid')===action.uid),moves=[];
+ const watched=entries.filter(e=>protectedItem(im,e.item)||call(e.item,'get_Uid')===action.uid||call(e.item,'get_Uid')===action.swapUid).map(e=>call(e.item,'get_Uid'));
+ if(entry&&action.kind==='deposit'&&entry.place==='inventory')moves.push({uid:action.uid,place:'storage',index:storageEmptyIndex(call(im,'get_Storage'))});
+ if(entry&&action.kind==='withdraw'&&entry.place==='storage'){
+  if(action.swapUid){
+   const swap=entries.find(e=>call(e.item,'get_Uid')===action.swapUid&&e.place==='inventory');
+   if(swap){moves.push({uid:action.uid,place:'inventory',index:swap.index});moves.push({uid:action.swapUid,place:'storage',index:entry.index});}
+  }else moves.push({uid:action.uid,place:'inventory',index:call(call(im,'get_Inventory'),'FindEmptyIndex')});
+ }
+ return guardedItemAction(()=>storageAction(action),characters,moves,watched);
+}
+function guardedEquipmentAction(action,characters,minGainPercent=0){
+ const im=single('DG.Item.Manager.ItemManager'),entry=containerEntries(im).find(e=>call(e.item,'get_Uid')===action.uid),moves=[];
+ if(entry){
+  moves.push({uid:action.uid,place:'equipment:'+action.id,index:action.slot});
+  if(action.previousUid)moves.push({uid:action.previousUid,place:entry.place,index:entry.index});
+ }
+ return guardedItemAction(()=>equipAction(action,minGainPercent),characters,moves);
 }
 function approvedMaterials(im,ids){
  if(!Array.isArray(ids)||!ids.length||new Set(ids).size!==ids.length)return null;
@@ -216,9 +275,11 @@ function activateCubeView(view){
  return popup;
 }
 function isTradable(p){return read(call(p,'get_Config'),'Tradable')!==false;}
-function protectedEquipmentCandidate(im,p){return isTradable(p)||call(p,'get_IsLocked')||call(im,'IsInUse',[ref(p)])||call(im,'IsEquipped',[ref(p)])||list(call(im,'FindRegistrations',[ref(p)])).length>0||!call(p,'get_IsServerConfirmed');}
+function protectedEquipmentCandidate(im,p){return typeof read(call(p,'get_Config'),'Tradable')!=='boolean'||call(p,'get_IsLocked')||call(im,'IsInUse',[ref(p)])||call(im,'IsEquipped',[ref(p)])||list(call(im,'FindRegistrations',[ref(p)])).length>0||!call(p,'get_IsServerConfirmed');}
+// Storage transfers retain trade flags and sockets; only inactive, confirmed items may move.
+function canMoveStoredItem(im,p){return !protectedEquipmentCandidate(im,p);}
 // Existing sockets are retained on an equipment swap, but never consumed as craft materials.
-function protectedItem(im,p){return protectedEquipmentCandidate(im,p)||list(call(p,'get_Sockets')).length>0;}
+function protectedItem(im,p){return isTradable(p)||protectedEquipmentCandidate(im,p)||list(call(p,'get_Sockets')).length>0;}
 function materialReceipt(before,after,selected){
  const old=new Map(before.map(p=>[p.uid,p])),now=new Map(after.map(p=>[p.uid,p]));
  const reserved=new Map();for(const p of selected)reserved.set(p.uid,(reserved.get(p.uid)||0)+1);

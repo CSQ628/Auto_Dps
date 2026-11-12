@@ -51,6 +51,7 @@ PARAMETERS = [
  choice('rune_priority','符文投资偏好','growth','runes',[('growth','成长优先'),('balanced','均衡成长'),('combat','战斗优先')]),
  choice('pet_mode','宠物切换偏好','auto','pets',[('auto','随练级与推进切换'),('growth','优先收益与经验'),('combat','优先战斗'),('keep','保留当前宠物')]),
  number('inventory_pressure_percent','背包整理触发占用',80,'workshop',40,100,'%',hint='联动存仓、合成和扩容优先级。'),
+ switch('recycle_pressure_cleanup','空间紧张时回收普通闲置装备',True,'workshop','背包达到整理阈值或仓库已满时，回收不提升任一角色、未保留且未用于配方的当前档及低档普通装备；可交易、带镶嵌、锁定物品继续保护。'),
  number('recycle_batch','单次回收淘汰装备上限',12,'workshop',1,12,'件'),
  number('recycle_normal_tier_gap','普通装备回收落后档数',1,'workshop',1,10,'档'),
  number('recycle_rare_tier_gap','较高品质装备回收落后档数',2,'workshop',1,10,'档'),

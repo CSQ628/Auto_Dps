@@ -17,11 +17,11 @@ test('forge tier follows native level boundaries',()=>{
 test('level 21 planning keeps the tier 3 recipe selector for tier 3..5 materials',()=>{
  const material={info:{id:510401,uid:'ore',count:1,kind:32,grade:1,tier:0}};
  const equipment={info:{tier:3,grade:4}};
- const storage={get_TabCount:()=>1,IsTabUnlocked:()=>true,get_OccupiedCount:()=>0,get_SlotCountPerTab:()=>49};
+ const storage={get_TabCount:()=>1,IsTabUnlocked:()=>true,get_OccupiedCount:()=>0,get_SlotCountPerTab:()=>49,get_IsFull:()=>false};
  const im={get_Storage:()=>storage,get_Cube:()=>({get_Level:()=>10}),GetEquipment:()=>({get_Has:()=>[null,null,null,null,equipment]})};
  const recipes=[{ID:50205,CraftType:1,RequireCubeLevel:10,MinTier:3,MaxTier:5,CraftPart:5,MaterialID:[510401],MaterialCount:[1]},
   {ID:50305,CraftType:1,RequireCubeLevel:20,MinTier:5,MaxTier:6,CraftPart:5,MaterialID:[510501],MaterialCount:[1]}];
- const c={call:(o,n,a=[])=>o[n](...a),list:x=>x,itemInfo:x=>x.info,isTradable:()=>false,protectedItem:()=>false,
+ const c={call:(o,n,a=[])=>o[n](...a),list:x=>x,itemInfo:x=>x.info,isTradable:()=>false,protectedItem:()=>false,canMoveStoredItem:()=>true,
   containerEntries:()=>[{item:material,place:'inventory'}],keyHash:()=>'',fixtureCatalogue:{recipes,tiers,normalMax:160,towerMax:100,maxCharacterLevel:100}};
  equipment.get_IsLocked=()=>false;
  vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/planner.js','utf8')+'\ncatalogueCache=fixtureCatalogue;equipmentPlans=()=>[];globalThis.run=inventoryOpportunities;',c);
@@ -71,4 +71,14 @@ test('entry checks the exact native consumption target instead of another safe s
  target=null;assert.equal(entranceStatus({}, {},0,20).reason,'ticket_missing');
  target=safeTarget;assert.equal(entranceStatus({}, {},0,20).safe,true);
  ticket=0;target=protectedTarget;assert.equal(entranceStatus({}, {},0,19).safe,true);
+});
+
+
+test('pressure cleanup is configurable and keeps reserved, future-tier and rare gear',()=>{
+ const plain=entry('plain',1),stored=entry('stored',1,'storage'),reserved=entry('reserved',1),future=entry('future',1),rare=entry('rare',1);
+ future.info.tier=3;rare.info.grade=3;
+ const options=context.subject.retirementPlans;const all=[plain,stored,reserved,future,rare];
+ assert.equal(options(all,new Set(['reserved']),2,undefined,false).length,0);
+ assert.deepEqual(Array.from(options(all,new Set(['reserved']),2,undefined,true),e=>e.info.uid),['plain','stored']);
+ assert.equal(options(all,new Set(['reserved']),2,{recycle_normal_tier_gap:1,recycle_rare_tier_gap:2,recycle_pressure_cleanup:false},true).length,0);
 });

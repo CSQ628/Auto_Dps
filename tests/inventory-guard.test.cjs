@@ -6,41 +6,39 @@ const assert=require('node:assert/strict');
 function fixture(){
  const mutations=[];
  const item=(uid,tradable=false)=>({isNull:()=>false,uid,config:{Tradable:tradable,Grade:1,Tier:1},
-  get_Config(){return this.config;},get_Uid(){return uid;},get_IsLocked(){return false;},get_IsServerConfirmed(){return true;},
-  get_Sockets(){return [];},get_ConfigID(){return 1;},get_Count(){return 1;},get_Kind(){return 1;}});
- const inventory={items:[],get_Has(){return this.items;},FindEmptyIndex:()=>1};
- const storage={items:[],get_Has(){return this.items;},get_SlotCountPerTab:()=>49,IsTabUnlocked:()=>true};
+  get_Config(){return this.config;},get_Uid(){return uid;},get_IsLocked(){return !!this.locked;},get_IsServerConfirmed(){return this.confirmed!==false;},
+  get_Sockets(){return this.sockets||[];},get_ConfigID(){return 1;},get_Count(){return this.count??1;},get_Kind(){return 1;}});
+ const inventory={items:[],get_Has(){return this.items;},FindEmptyIndex(){return this.items.length;}};
+ const storage={items:Array(49).fill(null),get_Has(){return this.items;},get_SlotCountPerTab:()=>49,IsTabUnlocked:()=>true};
  const equipment={items:[],get_Has(){return this.items;}};
  const im={get_Inventory:()=>inventory,get_Storage:()=>storage,GetEquipment:()=>equipment,get_Cube:()=>({}),
-  IsInUse:()=>false,IsEquipped:()=>false,FindRegistrations:()=>[],
-  TryExchange:()=>{mutations.push('exchange');return true;},TryMoveToStorage:()=>{mutations.push('deposit');return true;}};
+  get_Input:()=>({get_IsHolding:()=>false}),IsInUse:p=>!!p.inUse,IsEquipped:p=>!!p.equipped,FindRegistrations:p=>p.registered?[1]:[],
+  TryExchange:(from,i,to,j)=>{mutations.push('exchange');const old=to.items[j]||null;to.items[j]=from.items[i];from.items[i]=old;return true;},
+  TryMoveToStorage:(from,i,p)=>{mutations.push('deposit');storage.items.push(p);from.items[i]=null;return true;}};
  const context={api:()=>()=>0,list:x=>x,read:(o,n)=>o[n],single:()=>im,ref:p=>p,sceneObject:()=>({}),
   call:(o,n,args=[])=>{if(typeof o[n]!=='function')throw Error('unexpected native call '+n);return o[n](...args);}};
  vm.createContext(context);
- vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.sceneObject=()=>({});globalThis.subject={protectedItem,storageAction,equipAction,forgeAction,refineAction,cubeAction,approvedMaterials,checkPreserved,guardedItemAction};',context);
+ vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.sceneObject=()=>({});globalThis.subject={protectedItem,storageAction,equipAction,forgeAction,refineAction,cubeAction,approvedMaterials,checkPreserved,guardedItemAction,protectedEquipmentCandidate,protectedEquipped,canMoveStoredItem,guardedStorageAction};',context);
  return {item,inventory,storage,equipment,im,mutations,...context.subject};
 }
 
-test('tradable inventory and warehouse items never move',()=>{
- const f=fixture();
- f.inventory.items=[f.item('sellable',true)];
- assert.equal(f.protectedItem(f.im,f.inventory.items[0]),true);
- assert.equal(f.storageAction({kind:'deposit',uid:'sellable'}).status,'stale');
- f.storage.items=f.inventory.items;f.inventory.items=[];
- assert.equal(f.storageAction({kind:'withdraw',uid:'sellable'}).status,'stale');
- assert.deepEqual(f.mutations,[]);
+test('tradable items transfer in both directions without authorizing consumption',()=>{
+ const f=fixture(),p=f.item('sellable',true);f.inventory.items=[p];
+ assert.equal(f.protectedItem(f.im,p),true);
+ for(const kind of ['deposit','withdraw']){
+  const result=f.guardedStorageAction({kind,uid:'sellable'},[]);
+  assert.equal(result.status,'confirmed');assert.equal(result.tradable,true);assert.equal(result.protectedChanged.length,0);
+  assert.equal(f.approvedMaterials(f.im,['sellable']),null);
+ }
+ assert.equal(p.config.Tradable,true);assert.equal(f.inventory.items[1],p);
 });
 
-test('tradable candidate cannot be equipped',()=>{
- const f=fixture();f.inventory.items=[f.item('sellable',true)];
- assert.equal(f.equipAction({id:1,slot:0,uid:'sellable'}).status,'stale');
- assert.deepEqual(f.mutations,[]);
+test('tradable candidate is eligible for equipment while remaining a protected material',()=>{
+ const f=fixture(),p=f.item('sellable',true);assert.equal(f.protectedEquipmentCandidate(f.im,p),false);assert.equal(f.protectedItem(f.im,p),true);
 });
 
-test('tradable equipped item cannot be displaced',()=>{
- const f=fixture();f.inventory.items=[f.item('upgrade')];f.equipment.items=[f.item('sellable-equipped',true)];
- assert.equal(f.equipAction({id:1,slot:0,uid:'upgrade'}).reason,'protected_equipped_item');
- assert.deepEqual(f.mutations,[]);
+test('tradable equipped item can be exchanged without authorizing material consumption',()=>{
+ const f=fixture(),p=f.item('sellable-equipped',true);assert.equal(f.protectedEquipped(f.im,p),false);assert.equal(f.protectedItem(f.im,p),true);
 });
 
 test('bulk auto equip is absent from the execution path',()=>{
@@ -72,4 +70,66 @@ test('a native exception does not bypass the preservation check',()=>{
  const f=fixture(),p=f.item('trade',true);f.inventory.items=[p];
  const result=f.guardedItemAction(()=>{f.inventory.items=[];throw Error('native_failure');},[]);
  assert.equal(result.protectedChanged.length,1);assert.equal(result.reason,'protected_state_changed_after_error');
+});
+
+const socket=(id=10)=>({get_Index:()=>0,get_ConfigID:()=>id,get_Ability:()=>2,get_Value:()=>3});
+test('socketed nontrade items transfer with sockets intact and remain protected materials',()=>{
+ const f=fixture(),p=f.item('socketed');p.sockets=[socket()];f.inventory.items=[p];
+ for(const kind of ['deposit','withdraw']){
+  const result=f.guardedStorageAction({kind,uid:p.uid},[]);
+  assert.equal(result.status,'confirmed');assert.equal(result.protectedChecked,1);assert.equal(result.protectedChanged.length,0);
+  assert.equal(f.approvedMaterials(f.im,[p.uid]),null);
+ }
+});
+test('storage transfer refuses locked, in-use, equipped, registered, unconfirmed or unknown items',()=>{
+ for(const state of ['locked','inUse','equipped','registered','unconfirmed','unknown'])for(const kind of ['deposit','withdraw']){
+  const f=fixture(),p=f.item('blocked',true);
+  if(state==='unconfirmed')p.confirmed=false;else if(state==='unknown')delete p.config.Tradable;else p[state]=true;
+  (kind==='deposit'?f.inventory:f.storage).items=[p];
+  assert.equal(f.canMoveStoredItem(f.im,p),false);
+  assert.equal(f.guardedStorageAction({kind,uid:p.uid},[]).status,'stale');assert.deepEqual(f.mutations,[]);
+ }
+});
+test('transfer guard catches flag, count, socket, lock and unrelated location changes',()=>{
+ for(const tamper of ['flag','count','socket','lock','other']){
+  const f=fixture(),p=f.item('move',true),other=f.item('other');p.sockets=[socket()];other.sockets=[socket()];f.inventory.items=[p,other];
+  const deposit=f.im.TryExchange;
+  f.im.TryExchange=(...args)=>{const result=deposit(...args);
+   if(tamper==='flag')p.config.Tradable=false;else if(tamper==='count')p.count=2;else if(tamper==='socket')p.sockets=[socket(20)];else if(tamper==='lock')p.locked=true;else {f.inventory.items[2]=other;f.inventory.items[1]=null;}
+   return result;
+  };
+  assert.equal(f.guardedStorageAction({kind:'deposit',uid:p.uid},[]).protectedChanged.length,1,tamper);
+ }
+});
+test('full containers exchange a protected idle item for a recipe material and check both positions',()=>{
+ const f=fixture(),p=f.item('recipe'),spare=f.item('spare',true);spare.sockets=[socket()];
+ f.storage.items=[null,null,p];f.inventory.items=[spare];f.inventory.FindEmptyIndex=()=>-1;
+ const result=f.guardedStorageAction({kind:'withdraw',uid:p.uid,swapUid:spare.uid},[]);
+ assert.equal(result.status,'confirmed');assert.equal(result.protectedChecked,2);assert.equal(result.protectedChanged.length,0);
+ assert.equal(f.inventory.items[0],p);assert.equal(f.storage.items[2],spare);assert.equal(f.approvedMaterials(f.im,[spare.uid]),null);
+});
+test('a changed swap item and user drag state reject storage before mutation',()=>{
+ for(const mutate of [f=>{f.inventory.items[0].locked=true;},f=>{f.inventory.items=[];},f=>{f.im.get_Input=()=>({get_IsHolding:()=>true});}]){
+  const f=fixture();f.inventory.items=[f.item('spare',true)];f.storage.items=[f.item('recipe')];mutate(f);
+  assert.notEqual(f.guardedStorageAction({kind:'withdraw',uid:'recipe',swapUid:'spare'},[]).status,'confirmed');assert.deepEqual(f.mutations,[]);
+ }
+});
+test('a stale direction or full inventory never claims a storage move',()=>{
+ const f=fixture();f.storage.items=[f.item('stored')];f.inventory.FindEmptyIndex=()=>-1;
+ assert.equal(f.storageAction({kind:'deposit',uid:'stored'}).reason,'storage_source_changed');
+ assert.equal(f.storageAction({kind:'withdraw',uid:'stored'}).reason,'inventory_full');assert.deepEqual(f.mutations,[]);
+});
+
+
+test('deposit uses an empty unlocked slot instead of native automatic stack merging',()=>{
+ const f=fixture(),p=f.item('moving'),stack=f.item('existing');stack.count=3;f.inventory.items=[p];f.storage.items=[stack,null];
+ f.im.TryMoveToStorage=()=>{throw Error('auto_merge_forbidden');};
+ const result=f.guardedStorageAction({kind:'deposit',uid:p.uid},[]);
+ assert.equal(result.status,'confirmed');assert.equal(result.protectedChanged.length,0);
+ assert.equal(f.storage.items[0],stack);assert.equal(f.storage.items[1],p);assert.equal(stack.get_Count()+p.get_Count(),4);
+});
+test('empty slots in locked warehouse tabs are not deposit destinations',()=>{
+ const f=fixture();f.inventory.items=[f.item('moving')];f.storage.items=Array(98).fill(null);
+ for(let i=0;i<49;i++)f.storage.items[i]=f.item('held-'+i);f.storage.IsTabUnlocked=tab=>tab===0;
+ const result=f.guardedStorageAction({kind:'deposit',uid:'moving'},[]);assert.equal(result.reason,'storage_full');assert.deepEqual(f.mutations,[]);
 });

@@ -134,5 +134,5 @@ Object.assign(rpc.exports,{
    if(spec.list)value=list(value).map(p=>spec.fields?Object.fromEntries(spec.fields.map(f=>[f,read(p,f)])):p);
    return jsonSafe(value);
  });},
- dispose(){hook.detach();withManagedThread(()=>handles.splice(0).forEach(gcFree));while(queue.length){const job=queue.shift();clearTimeout(job.timer);job.reject(Error('disposed'));}return true;}
+ dispose(){hook.detach();withManagedThread(()=>handles.splice(0).forEach(handle=>gcFree(handle)));while(queue.length){const job=queue.shift();clearTimeout(job.timer);job.reject(Error('disposed'));}return true;}
 });
