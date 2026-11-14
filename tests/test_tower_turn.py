@@ -19,7 +19,7 @@ class TowerTurnTests(unittest.TestCase):
         observe_tower_turn(snapshot(0,11),state,'session',1000)
         self.assertTrue(state['tower_turn']['waiting'])
         observe_tower_turn(snapshot(0,11,3),state,'session',1001)
-        self.assertEqual(choose(scan,DEFAULT,state,now=1001)['kind'],'tower')
+        self.assertEqual(choose(scan,DEFAULT,state,now=1001)['kind'],'box')
 
     def test_process_change_and_counter_reset_do_not_carry_stale_baselines(self):
         state={};begin_tower_turn(snapshot(),state,'old',1)

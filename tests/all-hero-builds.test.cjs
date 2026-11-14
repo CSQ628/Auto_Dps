@@ -20,3 +20,11 @@ test('duplicate skill types use the highest unlocked native variant',()=>{
  assert.ok(c.plan(rows,['0','1','2'],8,0).desired.includes('3'));
  assert.ok(!c.plan(rows,['0','1','2'],8,0).desired.includes('1'));
 });
+
+
+test('Gula uses the native stack generator and spender instead of relying on four monster deaths at a Boss',()=>{
+ const rows=[['strike','GluttonyStrike',0],['kill','GluttonyKill',3],['bite','GluttonyStrike',8],['burst','GluttonyBurst',8],['field','FollowField',15]].map(([uid,type,unlock])=>({uid,type,unlock,learned:1}));
+ assert.deepEqual(Array.from(c.plan(rows,['kill','field','bite'],33,0).desired),['bite','field','burst']);
+ assert.deepEqual(Array.from(c.plan(rows,[null,null,null],3,0).desired),['strike','kill']);
+ assert.equal(c.plan(rows,['kill','field','bite'],33,0,false).swaps.length,0);
+});

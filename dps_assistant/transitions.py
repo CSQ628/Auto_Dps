@@ -6,6 +6,11 @@ def stage_target(action):
             action.get('level'), action.get('difficulty', 0))
 
 
+def stage_transition(action):
+    return action.get('kind') in ('tower', 'tower_return', 'battle_recover') or (
+        action.get('kind') == 'progress' and action.get('phase') == 'travel')
+
+
 def paid_entry(action):
     travel = action['kind'] in ('tower', 'tower_return') or (
         action['kind'] == 'progress' and action.get('phase') == 'travel')
@@ -23,6 +28,9 @@ def stage_arrived(action, snapshot):
     if not (stage.get('category') == category and stage.get('level') == level
             and stage.get('difficulty', 0) == difficulty and stage.get('running') is True
             and stage.get('alivePlayers', 0) > 0):
+        return False
+    if (action.get('kind') == 'progress' and action.get('phase') == 'travel'
+            and action.get('mode') in ('push', 'boss') and stage.get('repeat') is not False):
         return False
     readiness = snapshot.get('battleReadiness')
     return readiness is None or (readiness.get('known') is True

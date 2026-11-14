@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dps_assistant import engine, storage
-from dps_assistant.policy import choose,observe_growth,strength_signature
+from dps_assistant.policy import choose,observe_growth,progression_signature
 from dps_assistant.runtime import Bridge,BridgeStarting,BridgeFailure
 
 
@@ -58,6 +58,64 @@ class FakeBridge:
 
 
 class SchedulerTests(unittest.TestCase):
+    def mail_fixture(self, result=None, lost=False):
+        bridge = self.add()
+        value = scan()
+        value['snapshot']['mail'] = {'unread': 2, 'claims': {'observer': 's', 'sequence': 0, 'receipts': []}}
+        value['actions'] = [{'kind': 'mail_claim', 'key': 'mail_claim:a,b', 'ids': ['a', 'b'],
+                             'label': '领取邮件附件', 'priority': 98}]
+        original = bridge.call
+        def call(op, args=None):
+            if op == 'opportunities': return copy.deepcopy(value)
+            if op == 'execute':
+                self.assertTrue(self.engine.durable['host:1001']['pending_results'])
+                saved = storage.load_json(engine.DATA/'scheduler.json', {})
+                self.assertTrue(saved['host:1001']['pending_results'])
+                bridge.commands.append(args)
+                if lost: raise TimeoutError('lost mail reply')
+                return result or {'status': 'pending'}
+            return original(op, args)
+        bridge.call = call
+        return bridge, value
+
+    def test_mail_reservation_survives_absent_panel_changed_batch_restart_and_lost_response(self):
+        for lost in (False, True):
+            with self.subTest(lost=lost):
+                self.engine.durable = {};self.engine.instances = {};self.engine.bridges = {}
+                bridge, value = self.mail_fixture(lost=lost)
+                self.engine.tick('1')
+                state = self.engine.durable['host:1001']
+                self.assertIn('mail_claim:a,b', state.get('pending_results', {}))
+                value['actions'] = []
+                self.engine.tick('1')
+                self.assertIn('mail_claim:a,b', state['uncertain'])
+                state = storage.load_json(engine.DATA/'scheduler.json', {})['host:1001']
+                self.engine.durable = {'host:1001': state}
+                value['actions'] = [{'kind': 'mail_claim', 'key': 'mail_claim:a,b,c', 'ids': ['a', 'b', 'c'],
+                                     'label': '领取邮件附件', 'priority': 98}, scan()['actions'][0]]
+                # Let the unrelated rune succeed; no second mail claim may be submitted.
+                previous = bridge.call
+                bridge.call = lambda op,args=None: {'status':'confirmed'} if op=='execute' and args['kind']=='rune' else previous(op,args)
+                self.engine.tick('1')
+                self.assertEqual(len(bridge.commands), 1)
+                self.assertIn('mail_claim:a,b', state['pending_results'])
+
+    def test_mail_native_receipt_settles_once_and_definite_refusal_releases_reservation(self):
+        bridge, value = self.mail_fixture()
+        self.engine.tick('1')
+        state = self.engine.durable['host:1001'];pending = state['pending_results']['mail_claim:a,b']
+        value['actions'] = []
+        value['snapshot']['mail']['claims']['receipts'] = [{'sequence': 1, 'at': pending['at']+1,
+            'account': '1001', 'results': [{'id': i, 'status': 'CLAIMED'} for i in ('a','b')]}]
+        self.engine.tick('1');self.engine.tick('1')
+        self.assertFalse(state['pending_results'])
+        self.assertEqual(state['features']['mail_claim']['confirmed'], 1)
+        self.assertEqual(state['confirmed'], 1)
+        self.engine.durable = {};self.engine.bridges = {};self.engine.instances = {}
+        bridge, value = self.mail_fixture(result={'status':'waiting','reason':'native_mail_busy'})
+        self.engine.tick('1')
+        self.assertFalse(self.engine.durable['host:1001']['pending_results'])
+
     def test_costly_scans_delay_only_the_same_instance_and_preserve_sampling_clock(self):
         first,second=self.add(),self.add('2','1002','box')
         first_call=first.call;counts={'scan':0}
@@ -96,6 +154,91 @@ class SchedulerTests(unittest.TestCase):
         self.engine.bridges[key] = bridge
         self.engine.instances[key] = {'id': key, 'status': 'connecting', 'confirmed': 0}
         return bridge
+
+    def test_unsent_rune_reservation_is_rolled_back_after_disk_failure_and_retries_without_manual_input(self):
+        bridge=self.add()
+        value=scan();value['actions']=[]
+        original=bridge.call
+        bridge.call=lambda op,args=None:copy.deepcopy(value) if op=='opportunities' else original(op,args)
+        self.engine.tick('1')  # Establish the original save backup before the injected failure.
+        value['actions']=scan()['actions']+[{'kind':'rune','key':'unrelated','priority':90,'label':'已有预约'}]
+        state=self.engine.durable['host:1001']
+        state['uncertain']['unrelated']=123
+        with patch.object(self.engine,'save',side_effect=OSError('disk busy')):self.engine.tick('1')
+        self.assertEqual(bridge.commands,[])
+        self.assertEqual(state['uncertain'],{'unrelated':123})
+        self.assertTrue(self.engine.config['running'])
+        self.engine.tick('1')
+        self.assertEqual(len(bridge.commands),1)
+        self.assertEqual(bridge.commands[0]['kind'],'rune')
+        self.assertEqual(state['features']['rune']['confirmed'],1)
+
+    def test_unsent_mail_reservation_does_not_block_a_changed_batch_after_disk_recovers(self):
+        bridge,value=self.mail_fixture()
+        action=value['actions'].pop();self.engine.tick('1')
+        value['actions']=[action]
+        with patch.object(self.engine,'save',side_effect=OSError('disk busy')):self.engine.tick('1')
+        state=self.engine.durable['host:1001']
+        self.assertFalse(state.get('pending_results'))
+        self.assertFalse(state['uncertain'])
+        self.assertEqual(bridge.commands,[])
+        value['actions']=[{**action,'key':'mail_claim:a,b,c','ids':['a','b','c']}]
+        self.engine.tick('1')
+        self.assertEqual(len(bridge.commands),1)
+        self.assertEqual(bridge.commands[0]['ids'],['a','b','c'])
+
+    def test_atomic_scheduler_replace_failure_keeps_prior_disk_state_and_resumes_after_reload(self):
+        bridge=self.add();value=scan();value['actions']=[];original=bridge.call
+        bridge.call=lambda op,args=None:copy.deepcopy(value) if op=='opportunities' else original(op,args)
+        self.engine.tick('1')
+        previous=storage.load_json(engine.DATA/'scheduler.json',{})
+        original_replace=storage.os.replace
+        def replace(source,target):
+            if Path(target)==engine.DATA/'scheduler.json':raise PermissionError('scheduler file busy')
+            return original_replace(source,target)
+        value['actions']=scan()['actions']
+        with patch.object(storage.os,'replace',side_effect=replace):self.engine.tick('1')
+        self.assertEqual(bridge.commands,[])
+        self.assertFalse(self.engine.durable['host:1001']['uncertain'])
+        self.assertEqual(storage.load_json(engine.DATA/'scheduler.json',{}),previous)
+        reloaded=engine.Engine(start=False)
+        try:self.assertFalse(reloaded.durable['host:1001']['uncertain'])
+        finally:reloaded.stop()
+        self.engine.tick('1')
+        self.assertEqual(len(bridge.commands),1)
+        self.assertTrue(self.engine.config['running'])
+
+    def test_sent_rune_with_lost_response_keeps_its_reservation_and_never_replays_by_time(self):
+        bridge=self.add();original=bridge.call
+        def call(op,args=None):
+            if op=='execute':
+                bridge.commands.append(args)
+                raise TimeoutError('native result unknown')
+            return original(op,args)
+        bridge.call=call
+        self.engine.tick('1')
+        state=self.engine.durable['host:1001']
+        self.assertIn('rune:1:0',state['uncertain'])
+        with patch.object(engine.time,'time',return_value=time.time()+100000):self.engine.tick('1')
+        self.assertEqual(len(bridge.commands),1)
+        self.assertIn('rune:1:0',state['uncertain'])
+
+    def test_unsent_recovery_save_failure_preserves_attempt_count_and_retries(self):
+        bridge=self.add();value=scan();value['actions']=[];original=bridge.call
+        bridge.call=lambda op,args=None:copy.deepcopy(value) if op=='opportunities' else original(op,args)
+        self.engine.tick('1')
+        state=self.engine.durable['host:1001']
+        state['battle_recovery']={'eligible':True,'since':time.time()-300,'reason':'missing_players','attempts':0,'last_attempt':0}
+        previous=copy.deepcopy(state['battle_recovery'])
+        value['actions']=[{'kind':'battle_recover','mode':'sync','key':'recover','label':'恢复战斗','priority':112,'freeEntry':True}]
+        with patch.object(engine,'observe_battle_readiness',return_value=previous):
+            with patch.object(self.engine,'save',side_effect=OSError('disk busy')):self.engine.tick('1')
+            self.assertEqual(bridge.commands,[])
+            self.assertEqual(state['battle_recovery'],previous)
+            self.assertFalse(state.get('uncertain'))
+            self.engine.tick('1')
+        self.assertEqual(len(bridge.commands),1)
+        self.assertEqual(state['battle_recovery']['attempts'],1)
 
     def test_equipment_dwell_prevents_fast_reversal_without_blocking_other_growth(self):
         state={};a={'kind':'equipment','key':'equip:a','id':1,'slot':3,'uid':'b','previousUid':'a','priority':99}
@@ -174,7 +317,7 @@ class SchedulerTests(unittest.TestCase):
 
     def test_sync_backlog_keeps_free_farming_and_ticket_guard_available(self):
         value=scan();value['snapshot']['sync']={'queue':151,'blocked':False}
-        farm={'kind':'progress','key':'farm:18','mode':'farm','priority':107,'freeEntry':True}
+        farm={'kind':'progress','key':'farm:18','mode':'farm','level':18,'difficulty':0,'priority':107,'freeEntry':True}
         value['actions'].append(farm)
         self.assertEqual(choose(value,engine.DEFAULT,{'growth':{'phase':'farm'}}),farm)
         guard={'kind':'progress','key':'guard:20','mode':'guard','priority':130,'freeEntry':True}
@@ -199,7 +342,7 @@ class SchedulerTests(unittest.TestCase):
     def test_native_offline_blocks_investment_even_before_queue_grows(self):
         value=scan();value['snapshot']['connection']={'online':False}
         self.assertIsNone(choose(value,engine.DEFAULT,{}))
-        farm={'kind':'progress','key':'farm:18:repeat','mode':'farm','phase':'repeat',
+        farm={'kind':'progress','key':'farm:18:repeat','mode':'farm','level':18,'difficulty':0,'phase':'repeat',
               'priority':107,'freeEntry':True}
         value['actions'].append(farm)
         self.assertEqual(choose(value,engine.DEFAULT,{'growth':{'phase':'farm'}}),farm)
@@ -207,36 +350,66 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(choose(value,engine.DEFAULT,{})['kind'],'rune')
 
     def test_tower_retries_require_progress_and_minimum_interval(self):
-        value=scan();value['snapshot']['record']={'maxStage':15}
+        tower_config=copy.deepcopy(engine.DEFAULT);tower_config['modules']['tower']=True
+        value=scan();value['snapshot']['record']={'maxStage':15,'maxCleared':15}
+        value['snapshot']['catalogue']={'normalMax':15}
+        value['snapshot']['stage']={'category':0,'level':15,'running':False,'ending':True}
         value['actions']=[{'key':'tower:1','kind':'tower','level':1,'priority':79}]
         state={'tower_attempt':{'level':1,'max_stage':15,'at':100}}
-        self.assertIsNone(choose(value,engine.DEFAULT,state,now=1000))
+        self.assertIsNone(choose(value,tower_config,state,now=1000))
         value['snapshot']['record']['maxStage']=16
-        self.assertIsNone(choose(value,engine.DEFAULT,state,now=200))
-        self.assertIsNotNone(choose(value,engine.DEFAULT,state,now=500))
+        self.assertIsNone(choose(value,tower_config,state,now=200))
+        self.assertIsNotNone(choose(value,tower_config,state,now=500))
 
-    def test_eligible_tower_gets_a_turn_between_boss_and_farming_cycles(self):
-        value=scan();value['snapshot']['record']={'maxStage':20}
-        tower={'key':'tower:2','kind':'tower','level':2,'priority':79}
-        boss={'key':'boss:20','kind':'progress','mode':'boss','priority':108}
-        farm={'key':'farm:18','kind':'progress','mode':'farm','priority':107}
-        value['actions']=[tower,boss,farm]
-        self.assertEqual(choose(value,engine.DEFAULT,{},now=1000)['kind'],'tower')
+    def test_tower_never_preempts_frontier_or_runs_during_farming(self):
+        tower_config=copy.deepcopy(engine.DEFAULT);tower_config['modules']['tower']=True
+        value=scan();value['snapshot']['record']={'maxStage':20,'maxCleared':20}
+        value['snapshot']['catalogue']={'normalMax':20}
+        value['snapshot']['stage']={'category':0,'level':20,'running':False,'ending':True}
+        tower={'key':'tower:2','kind':'tower','level':2,'priority':109}
+        boss={'key':'boss:21','kind':'progress','mode':'boss','priority':108}
+        farm={'key':'farm:20','kind':'progress','mode':'farm','level':20,'difficulty':0,'priority':107}
+        value['actions']=[tower,boss]
+        self.assertEqual(choose(value,tower_config,{},now=1000)['key'],'boss:21')
         state={'growth':{'phase':'farm','since':100}}
-        self.assertEqual(choose(value,engine.DEFAULT,state,now=279)['mode'],'farm')
-        self.assertEqual(choose(value,engine.DEFAULT,state,now=280)['kind'],'tower')
-        state['tower_attempt']={'level':2,'max_stage':20,'at':200,'strength':strength_signature(value['snapshot'])}
-        self.assertEqual(choose(value,engine.DEFAULT,state,now=1000)['mode'],'farm')
+        value['snapshot']['stage']['level']=20
+        value['actions']=[tower,farm]
+        self.assertEqual(choose(value,tower_config,state,now=279)['key'],'farm:20')
+        self.assertEqual(choose(value,tower_config,state,now=1000)['key'],'farm:20')
+        value['actions']=[tower]
+        self.assertIsNone(choose(value,tower_config,state,now=1000))
+        value['snapshot']['stage']['level']=21
+        state={'growth':{'phase':'push','since':100}}
+        self.assertIsNone(choose(value,tower_config,state,now=1000))
+        state['tower_attempt']={'level':2,'max_stage':20,'at':200,'progress_strength':progression_signature(value['snapshot'])}
+        self.assertIsNone(choose(value,tower_config,state,now=1000))
         value['snapshot']['runes']={'learned':5}
-        self.assertEqual(choose(value,engine.DEFAULT,state,now=1000)['kind'],'tower')
+        self.assertIsNone(choose(value,tower_config,state,now=1000))
         value['actions'].append({'kind':'progress','key':'guard','mode':'guard','priority':130})
-        self.assertEqual(choose(value,engine.DEFAULT,state,now=1000)['key'],'guard')
+        self.assertEqual(choose(value,tower_config,state,now=1000)['key'],'guard')
+
+    def test_tower_is_rejected_until_the_native_main_story_frontier_is_complete(self):
+        tower_config=copy.deepcopy(engine.DEFAULT);tower_config['modules']['tower']=True
+        value=scan();value['snapshot']['record']={'maxStage':39,'maxCleared':39}
+        value['snapshot']['catalogue']={'normalMax':160}
+        value['snapshot']['stage']={'category':0,'level':39,'running':False,'ending':True}
+        value['actions']=[{'key':'tower:2','kind':'tower','level':2,'priority':79}]
+        self.assertIsNone(choose(value,tower_config,{},now=1000))
+        value['snapshot']['record']['maxCleared']=160
+        value['snapshot']['stage']['level']=160
+        self.assertEqual(choose(value,tower_config,{},now=1001)['key'],'tower:2')
+        for missing in ({'normalMax':0},{},None):
+            value['snapshot']['catalogue']=missing or {}
+            self.assertIsNone(choose(value,tower_config,{},now=1002))
 
     def test_permanent_rune_routes_use_separate_crystal_budget(self):
         value=scan();value['snapshot']['currencies']['premium']=4
         value['actions'][0].update(cost={'goods':202,'amount':2},permanent=True)
         self.assertIsNotNone(choose(value,engine.DEFAULT,{}))
         value['actions'][0]['cost']['amount']=3
+        self.assertIsNotNone(choose(value,engine.DEFAULT,{}))
+        self.assertIsNone(choose(value,{**engine.DEFAULT,'premium_reserve':2},{}))
+        value['actions'][0]['cost']['amount']=5
         self.assertIsNone(choose(value,engine.DEFAULT,{}))
         value['actions'][0]['cost']['amount']=1
         config={**engine.DEFAULT,'permanent_runes':False}
@@ -245,21 +418,23 @@ class SchedulerTests(unittest.TestCase):
         self.assertIsNone(choose(value,engine.DEFAULT,{}))
 
     def test_tower_reconsiders_verified_growth_without_new_main_stage(self):
-        value=scan();value['snapshot'].update(record={'maxStage':19},runes={'learned':132})
+        tower_config=copy.deepcopy(engine.DEFAULT);tower_config['modules']['tower']=True
+        value=scan();value['snapshot'].update(stage={'category':0,'level':19,'running':False,'ending':True},record={'maxStage':19,'maxCleared':19},runes={'learned':132})
+        value['snapshot']['catalogue']={'normalMax':19}
         value['actions']=[{'key':'tower:1','kind':'tower','level':1,'priority':79}]
-        state={'tower_attempt':{'level':1,'max_stage':19,'at':100,'strength':strength_signature(value['snapshot'])}}
-        self.assertIsNone(choose(value,engine.DEFAULT,state,now=500))
+        state={'tower_attempt':{'level':1,'max_stage':19,'at':100,'progress_strength':progression_signature(value['snapshot'])}}
+        self.assertIsNone(choose(value,tower_config,state,now=500))
         value['snapshot']['runes']['learned']=133
-        self.assertIsNone(choose(value,engine.DEFAULT,state,now=200))
-        self.assertIsNotNone(choose(value,engine.DEFAULT,state,now=500))
+        self.assertIsNone(choose(value,tower_config,state,now=200))
+        self.assertIsNotNone(choose(value,tower_config,state,now=500))
 
     def test_failures_trigger_farming_and_growth_releases_it(self):
-        value=scan();snap=value['snapshot'];snap.update(stage={'category':0},record={'maxCleared':18,'deaths':100},characters=[{'id':1,'level':18}])
+        value=scan();snap=value['snapshot'];snap.update(stage={'category':0},record={'maxCleared':18,'maxStage':18,'deaths':100},characters=[{'id':1,'level':18}])
         state={};observe_growth(snap,state,100)
         snap['record']['deaths']=106
         self.assertEqual(observe_growth(snap,state,280)['phase'],'farm')
-        value['actions']=[{'key':'repeat_off','kind':'progress','mode':'push','priority':106},
-                          {'key':'farm:18','kind':'progress','mode':'farm','priority':107}]
+        value['actions']=[{'key':'repeat_off','kind':'progress','mode':'push','level':19,'priority':106},
+                          {'key':'farm:18','kind':'progress','mode':'farm','level':18,'difficulty':0,'priority':107}]
         self.assertEqual(choose(value,engine.DEFAULT,state,now=281)['mode'],'farm')
         snap['characters'][0]['level']=19
         self.assertEqual(observe_growth(snap,state,459)['phase'],'farm')
@@ -273,6 +448,28 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(choose(value,engine.DEFAULT,state,now=300)['kind'],'rune')
         value['actions'].append({'kind':'progress','key':'guard:20','priority':130,'mode':'guard'})
         self.assertEqual(choose(value,engine.DEFAULT,state,now=10000)['key'],'guard:20')
+
+    def test_durable_scheduler_services_low_priority_growth_amid_continuous_loot(self):
+        bridge=self.add();original=bridge.call;start=1_700_001_000;clock={'now':start}
+        def observed(op,args=None):
+            if op=='opportunities':
+                value=scan();value['actions'][0]['priority']=60
+                value['actions'].append({'kind':'box','key':'box:'+str(clock['now']),
+                                         'label':'持续开箱','priority':99})
+                return value
+            return original(op,args)
+        bridge.call=observed
+        for now in range(start,start+1301,10):
+            clock['now']=now
+            with patch.object(engine.time,'time',return_value=now):self.engine.tick('1')
+            self.assertNotEqual(self.engine.instances['1']['status'],'recovering',str(self.engine.instances['1'].get('error')))
+            if now-start in (400,800,1200):
+                self.engine.durable=storage.load_json(engine.DATA/'scheduler.json',{})
+        state=storage.load_json(engine.DATA/'scheduler.json',{})['host:1001']
+        self.assertGreaterEqual(state['features']['rune']['confirmed'],2)
+        self.assertGreater(state['features']['box']['confirmed'],0)
+        self.assertEqual(state['confirmed'],len(bridge.commands))
+        self.assertFalse(state.get('uncertain'))
 
     def test_return_to_main_does_not_depend_on_tower_module(self):
         value=scan();value['actions']=[{'key':'return:15','kind':'tower_return','level':15,'priority':112}]
@@ -363,7 +560,7 @@ class SchedulerTests(unittest.TestCase):
         self.engine.tick('1')
         self.assertEqual(len(bridge.commands),1)
         current['actions']=[]
-        current['snapshot']['stage']={'category':0,'level':10,'difficulty':0,'running':True,'alivePlayers':1}
+        current['snapshot']['stage']={'category':0,'level':10,'difficulty':0,'running':True,'repeat':False,'alivePlayers':1}
         self.engine.tick('1')
         self.assertFalse(state['entry_uncertainty'])
         self.assertNotIn(action['key'],state['uncertain'])

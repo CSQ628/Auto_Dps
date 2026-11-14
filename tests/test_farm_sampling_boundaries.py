@@ -22,7 +22,7 @@ class FarmSamplingBoundaryTests(unittest.TestCase):
         result = observe_farming(snapshot, state, 'game', 130, config)
         self.assertEqual(result['efficiency']['measurements'][0]['per_minute'], 200)
 
-    def test_a_battle_spanning_a_pause_cannot_prove_a_complete_observed_clear(self):
+    def test_a_battle_spanning_a_pause_cannot_prove_a_complete_observed_outcome(self):
         snapshot, state, config = fixture()
         observe_farming(snapshot, state, 'game', 100, config)
         snapshot['characters'][0]['expTotal'] += 10
@@ -83,7 +83,7 @@ class FarmSamplingBoundaryTests(unittest.TestCase):
         cache['stages']['9:0'].pop('gained_by_character')
         result = observe_farming(snapshot, state, 'game', 120, config)
         self.assertFalse(result['efficiency']['measurements'])
-        self.assertEqual(state['farm_efficiency']['schema'], 2)
+        self.assertEqual(state['farm_efficiency']['schema'], 4)
 
 
 if __name__ == '__main__':

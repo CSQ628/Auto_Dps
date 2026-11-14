@@ -26,8 +26,8 @@ export default function Connections({csrf,onClose,onBound}){
  }
  const process=data?.processes.find(p=>String(p.pid)===selected);
  return <Dialog open onOpenChange={(_,d)=>{if(!d.open&&!busy)onClose();}}><DialogSurface className="connection-dialog"><DialogBody>
-  <DialogTitle>连接本地游戏</DialogTitle><DialogContent>
-   <p className="dialog-description">自动连接始终开启。可以指定游戏目录，或手动绑定一个正在运行的普通或沙盒实例。</p>
+  <DialogTitle>自定义多个连接</DialogTitle><DialogContent>
+   <p className="dialog-description">自动连接始终开启。可以指定游戏目录，或逐个绑定正在运行的普通与沙盒实例；绑定后保留此窗口，可继续添加其他连接。</p>
    <div className="connection-toolbar"><span>{data?`找到 ${data.processes.length} 个运行实例`:'正在检测游戏进程和安装目录'}</span><Button icon={<ArrowsClockwise size={16}/>} disabled={busy} onClick={()=>scan()}>重新扫描</Button></div>
    <section className="connection-section"><h3>绑定运行中的游戏</h3>
     <label htmlFor="connection-process">选择实例</label>

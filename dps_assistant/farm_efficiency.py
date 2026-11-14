@@ -12,6 +12,19 @@ def _key(stage):
     return str(stage['level']) + ':' + str(stage['difficulty'])
 
 
+stage_key = _key
+
+
+def exploration_state(snapshot, state, session):
+    # Coverage survives levels, gear upgrades and sample expiry; rates never do.
+    identity = str((session, tuple(snapshot.get('squad', []))))
+    coverage = state.get('farm_exploration')
+    if not coverage or coverage.get('identity') != identity:
+        coverage = {'identity': identity, 'visited': {}, 'measured': {}}
+        state['farm_exploration'] = coverage
+    return coverage
+
+
 def observe_efficiency(snapshot, state, session, now, config, route, candidates, allow_selection=True):
     from .policy import strength_signature
 
@@ -19,11 +32,24 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
     if not options['adaptive_farming']:
         state.pop('farm_efficiency', None)
         return {'enabled': False, 'measurements': []}
-    identity = str((session, strength_signature(snapshot)))
+    squad = snapshot.get('squad') or []
+    characters = [c for c in snapshot.get('characters', []) if c.get('id') in squad]
+    native_cap = snapshot.get('catalogue', {}).get('characterMax')
+    level_cap = native_cap if type(native_cap) is int and native_cap > 0 else None
+    # Only a native, known cap permits excluding a hero. A missing cap keeps
+    # the old conservative scope; capped heroes still participate in combat.
+    learners = [c for c in characters if level_cap is None
+                or type(c.get('level')) is not int or c['level'] != level_cap]
+    roster_valid = (len(squad) == len(set(squad)) == len(characters) > 0
+                    and {c.get('id') for c in characters} == set(squad))
+    all_at_cap = bool(roster_valid and level_cap is not None and not learners)
+    identity = str((session, strength_signature(snapshot), level_cap,
+                    tuple(sorted(c['id'] for c in learners))))
     cache = state.get('farm_efficiency')
-    if not cache or cache.get('identity') != identity or cache.get('schema') != 2:
-        cache = {'schema': 2, 'identity': identity, 'since': now, 'stages': {}}
+    if not cache or cache.get('identity') != identity or cache.get('schema') != 4:
+        cache = {'schema': 4, 'identity': identity, 'since': now, 'stages': {}}
         state['farm_efficiency'] = cache
+    coverage = exploration_state(snapshot, state, session)
     keys = {_key(p): p for p in candidates}
     measurements = cache['stages']
     for key in list(measurements):
@@ -33,15 +59,13 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
     stage = snapshot.get('stage', {})
     readiness = snapshot.get('battleReadiness', {})
     current = snapshot.get('combat', {}).get('current') or {}
-    squad = snapshot.get('squad') or []
-    characters = [c for c in snapshot.get('characters', []) if c.get('id') in squad]
     key = _key(stage) if 'level' in stage and 'difficulty' in stage else None
     pending = state.get('pending_results', {}).values()
     transitioning = any(p.get('action', {}).get('kind') in ('tower', 'tower_return', 'battle_recover')
                         or p.get('action', {}).get('kind') == 'progress' and p['action'].get('phase') == 'travel'
                         for p in pending)
     active = (config.get('running') is True and config.get('modules', {}).get('progress') is True
-              and snapshot.get('loaded') is True and state.get('growth', {}).get('phase') == 'farm'
+              and snapshot.get('loaded') is True and state.get('growth', {}).get('phase') in ('farm', 'endgame')
               and snapshot.get('experienceBlocked') is False and not snapshot.get('automationBlocked') and not transitioning
               and stage.get('category') == 0 and stage.get('repeat') is True and key in keys
               and readiness.get('known') is True and readiness.get('charactersInitialized') is True
@@ -52,10 +76,34 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
               and snapshot.get('combat', {}).get('available') is True
               and current.get('level') == stage.get('level') and current.get('difficulty') == stage.get('difficulty')
               and current.get('result') in ('InProgress', 'Cleared', 'Failed') and _number(current.get('sequence'))
-              and len(squad) == len(set(squad)) == len(characters) > 0
+              and roster_valid and bool(learners)
               and all(_number(c.get('expTotal')) and _number(c.get('level')) for c in characters))
+    if active and key == _key(route):
+        # Growth invalidates rates and grants a fresh strength-specific probe below.
+        # A separate visit clock bounds repeated grants without mixing those rates.
+        visit_marker = str((session, tuple(squad), key, route['since']))
+        if route.get('probe_visit_marker') != visit_marker:
+            route.update(probe_visit_marker=visit_marker, visit_active_seconds=0)
+            route.pop('visit_probe_last', None)
+        visit_interval = now - route.get('visit_probe_last', now)
+        if 0 < visit_interval <= max(15, config.get('interval', 2) * 3):
+            route['visit_active_seconds'] += visit_interval
+        route['visit_probe_last'] = now
+        # Probe time and reward samples must refer to the same strength epoch.
+        marker = str((key, route['since'], cache['identity'], cache['since']))
+        if route.get('visit_marker') != marker:
+            coverage['visited'][key] = now
+            route.update(visit_marker=marker, active_seconds=0)
+            route.pop('probe_last', None)
+        interval = now - route.get('probe_last', now)
+        if 0 < interval <= max(15, config.get('interval', 2) * 3):
+            route['active_seconds'] = route.get('active_seconds', 0) + interval
+        route['probe_last'] = now
+    else:
+        route.pop('probe_last', None)
+        route.pop('visit_probe_last', None)
     if active:
-        totals = {str(c['id']): c['expTotal'] for c in characters}
+        totals = {str(c['id']): c['expTotal'] for c in learners}
         previous = cache.get('last', {})
         seconds = now - previous.get('at', now)
         if previous.get('key') == key and (any(totals[c] < previous.get('totals', {}).get(c, 0) for c in totals)
@@ -91,37 +139,84 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
         cache.pop('last', None)
 
     def ready(value):
-        return value['seconds'] >= options['farm_sample_seconds'] and bool(value['clears'])
+        return (value['seconds'] >= options['farm_sample_seconds']
+                and (bool(value['clears']) or len(value['failures']) >= options['farm_failure_limit']))
 
     rows = [{**keys[k], 'observed_seconds': b['seconds'], 'gained': b['gained'],
              'per_minute': b['gained'] * 60 / b['seconds'] if ready(b) else None,
              'clears': len(b['clears']), 'failures': len(b['failures']), 'ready': ready(b)}
             for k, b in measurements.items() if b['seconds'] > 0]
+    frontier = snapshot.get('record', {}).get('maxCleared', 0)
+    chapter = max(1, math.ceil(frontier / 10)) if _number(frontier) else 1
+    candidate_levels = [p['level'] for p in keys.values()]
     result = {'enabled': True, 'sample_seconds': options['farm_sample_seconds'],
+              'candidate_count': len(keys), 'tested_count': sum(k in coverage['measured'] for k in keys),
+              'visited_count': sum(k in coverage['visited'] for k in keys),
               'measurements': sorted(rows, key=lambda p: p['level'], reverse=True),
-              'reason': '等待同一编队战力下的免费重复练级实测。'}
-    # Failure recovery excludes this stage for the current route lifetime (until level/frontier changes).
+              'chapter': chapter,
+              'band_min': min(candidate_levels), 'band_max': max(candidate_levels),
+              'levelling_characters': [c['id'] for c in learners], 'level_cap': level_cap,
+              'all_at_cap': all_at_cap,
+              'reason': ('上阵英雄已全部满级，停止按经验轮换地图；装备、刻印和主线流程继续。'
+                         if all_at_cap else
+                         '仅比较未满级上阵英雄的最低经验收益；等待当前章节免费关卡实测。')}
+    if all_at_cap:
+        # Do not mark a full-level party as a stalled/failed experience probe.
+        cache.pop('last', None)
+        for field in ('probe_last', 'visit_probe_last', 'visit_marker', 'probe_visit_marker',
+                      'active_seconds', 'visit_active_seconds'):
+            route.pop(field, None)
+        return result
     excluded = set(route.get('failed_stages', []))
     eligible = [p for p in candidates if _key(p) not in excluded]
     by_key = {_key(p): p for p in rows if p['ready'] and _key(p) not in excluded}
     selected = by_key.get(_key(route))
-    if not active or not allow_selection or not selected or not eligible:
+    result['recent_tested_count'] = len(by_key)
+    if not active or not allow_selection or key != _key(route):
         return result
-    # Finish the observed fight; only queue travel at an ending or the start of its next cycle.
+    if selected:
+        coverage['measured'][key] = now
+        result['tested_count'] = sum(k in coverage['measured'] for k in keys)
+    probe_limit = max(options['farm_sample_seconds'], options['farm_probe_seconds'])
+    visit_exhausted = route.get('visit_active_seconds', 0) >= 2 * probe_limit
+    timed_out = not selected and (route.get('active_seconds', 0) >= probe_limit or visit_exhausted)
+    if timed_out:
+        excluded.add(key)
+        route['failed_stages'] = sorted(excluded)
+        route.setdefault('failed_at', {})[key] = now
+        eligible = [p for p in eligible if _key(p) != key]
+        result['reason'] = ('该图累计试打已达上限，成长变化后仍无可比较样本，轮换其他高级免费图。'
+                            if visit_exhausted else
+                            '该图试打超时仍无可比较样本，轮换其他高级免费图；战力成长或有效期到后可重试。')
+    elif not selected:
+        return result
+    if not eligible:
+        result['reason'] = '当前高级候选尚无可靠通关，不回退低级图，保留当前免费场景并等待成长与主线重试。'
+        return result
+    # A stalled probe may escape mid-battle. Normal comparisons finish the current battle.
     boundary = current.get('result') in ('Cleared', 'Failed') or _number(current.get('elapsed')) and current['elapsed'] <= 10
-    if not boundary:
+    if not timed_out and not boundary:
         result['reason'] = '实测已满足，完成当前战斗后再比较练级点。'
         return result
-    unmeasured = next((p for p in eligible if _key(p) not in by_key), None)
-    if unmeasured:
-        target = unmeasured
-        reason = '实测当前免费关卡后，比较下一个免费练级点。'
+    unknown = sorted((p for p in eligible if _key(p) not in by_key),
+                     key=lambda p: (coverage['visited'].get(_key(p), -1), -p['level']))
+    best = max(by_key.values(), key=lambda p: (p['per_minute'], p['level']), default=None)
+    gain = 1 + options['farm_switch_gain_percent'] / 100
+    if timed_out:
+        target = unknown[0] if unknown else best or eligible[0]
+        reason = result['reason']
+    elif route.get('exploit_until', 0) > now:
+        return result | {'reason': '暂留近期实测更快的图积累经验，随后继续轮测未验证地图。'}
+    elif best and _key(best) != key and best['per_minute'] > selected['per_minute'] * gain:
+        target = best
+        route['exploit_until'] = now + options['farm_min_seconds']
+        reason = '返回近期实测更快的免费图积累经验，之后继续轮测。'
+    elif unknown:
+        target = unknown[0]
+        reason = '完成当前图实测，按轮换顺序试打其他高级免费已通关图。'
     else:
-        target = max(eligible, key=lambda p: (by_key[_key(p)]['per_minute'], p['level']))
-        best = by_key[_key(target)]['per_minute']
-        if best <= selected['per_minute'] * (1 + options['farm_switch_gain_percent'] / 100):
-            target = route
-        reason = '按当前编队战力下的近期实测经验收益选择练级点。'
+        target = best if best and best['per_minute'] > selected['per_minute'] * gain else route
+        reason = '当前候选已完成近期实测，按经验收益与切换阈值选点。'
     result['reason'] = reason
     if _key(target) != _key(route):
         route.update(level=target['level'], difficulty=target['difficulty'], since=now, reason=reason)

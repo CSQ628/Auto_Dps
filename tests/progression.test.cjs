@@ -19,7 +19,7 @@ test('content goals include owned DLC and free unlocks without treating unmet un
  assert.equal(unknown.eligibleTotal,null);assert.equal(unknown.eligibleUnlocked,null);
 });
 
-test('farming favors growth pets while pushing favors combat and keeps offline pets behind both',()=>{
+test('legacy cosmetic pet themes retain stable ordering without defining gameplay bonuses',()=>{
  const ghost=petPreference('T_KillGoods_Rate',5,true),broom=petPreference('T_Critical_Rate',5,true);
  assert.ok(ghost.group>broom.group);
  assert.ok(petPreference('T_KillExpGain_Rate',5,true).group>ghost.group);

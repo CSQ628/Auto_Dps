@@ -29,8 +29,8 @@ test('ordinary idle items stage before protected items',()=>{
 });
 function planningFixture(entries,capacity=2,storageCapacity=1,recipes=[]){
  const storage={get_TabCount:()=>1,IsTabUnlocked:()=>true,get_OccupiedCount:()=>entries.filter(e=>e.place==='storage').length,get_SlotCountPerTab:()=>storageCapacity,get_IsFull:()=>entries.filter(e=>e.place==='storage').length>=storageCapacity};
- const im={get_Storage:()=>storage,get_Cube:()=>({get_Level:()=>1}),GetEquipment:()=>({get_Has:()=>[]})};
- const ctx={call:(o,n,args=[])=>o[n](...args),list:x=>x,itemInfo:p=>p.info,read:(o,n)=>o[n],isTradable:p=>p.info.tradable===true,protectedItem:(_,p)=>!!p.protected,canMoveStoredItem:(_,p)=>!p.blocked,containerEntries:()=>entries,keyHash:x=>x,
+ const im={get_Storage:()=>storage,get_Cube:()=>({get_Level:()=>1,get_Capacity:()=>9}),GetEquipment:()=>({get_Has:()=>[]})};
+ const ctx={call:(o,n,args=[])=>o[n](...args),list:x=>x,itemInfo:p=>p.info,read:(o,n)=>o[n],isTradable:p=>p.info.tradable===true,protectedItem:(_,p)=>!!p.protected,canMoveStoredItem:(_,p)=>!p.blocked,workshopCapacity:()=>9,canRecycleItem:(_,p)=>!p.protected,protectedEquipped:()=>false,containerEntries:()=>entries,keyHash:x=>x,
   fixtureCatalogue:{recipes,tiers:[{tier:1,min:1}],normalMax:100,towerMax:100,maxCharacterLevel:100}};
  vm.createContext(ctx);vm.runInContext(fs.readFileSync('bridge/planner.js','utf8')+'\ncatalogueCache=fixtureCatalogue;equipmentPlans=()=>[];globalThis.run=inventoryOpportunities;',ctx);
  return {scan(){const snapshot={characters:[{id:1,level:1}],squad:[1],inventory:{count:entries.filter(e=>e.place==='inventory').length,capacity}},actions=[],issues=[];

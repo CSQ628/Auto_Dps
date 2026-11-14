@@ -35,6 +35,17 @@ class TransitionTests(unittest.TestCase):
             s=copy.deepcopy(snapshot);s['battleReadiness'][field]=value
             self.assertFalse(stage_arrived(action,s))
 
+    def test_push_and_boss_arrival_requires_repeats_disabled(self):
+        snapshot={'stage':{'category':0,'level':10,'difficulty':0,'running':True,
+                           'repeat':True,'alivePlayers':1}}
+        for mode in ('push','boss'):
+            action={'kind':'progress','mode':mode,'phase':'travel','repeat':False,
+                    'level':10,'difficulty':0}
+            self.assertFalse(stage_arrived(action,snapshot))
+            snapshot['stage']['repeat']=False
+            self.assertTrue(stage_arrived(action,snapshot))
+            snapshot['stage']['repeat']=True
+
     def test_main_and_tower_clear_records_are_not_interchangeable(self):
         snap={'record':{'maxCleared':20,'towerMaxCleared':2}}
         self.assertTrue(entry_cleared({'kind':'progress','level':10},snap,9))

@@ -18,10 +18,10 @@ test('level 21 planning keeps the tier 3 recipe selector for tier 3..5 materials
  const material={info:{id:510401,uid:'ore',count:1,kind:32,grade:1,tier:0}};
  const equipment={info:{tier:3,grade:4}};
  const storage={get_TabCount:()=>1,IsTabUnlocked:()=>true,get_OccupiedCount:()=>0,get_SlotCountPerTab:()=>49,get_IsFull:()=>false};
- const im={get_Storage:()=>storage,get_Cube:()=>({get_Level:()=>10}),GetEquipment:()=>({get_Has:()=>[null,null,null,null,equipment]})};
+ const im={get_Storage:()=>storage,get_Cube:()=>({get_Level:()=>10,get_Capacity:()=>9}),GetEquipment:()=>({get_Has:()=>[null,null,null,null,equipment]})};
  const recipes=[{ID:50205,CraftType:1,RequireCubeLevel:10,MinTier:3,MaxTier:5,CraftPart:5,MaterialID:[510401],MaterialCount:[1]},
   {ID:50305,CraftType:1,RequireCubeLevel:20,MinTier:5,MaxTier:6,CraftPart:5,MaterialID:[510501],MaterialCount:[1]}];
- const c={call:(o,n,a=[])=>o[n](...a),list:x=>x,itemInfo:x=>x.info,isTradable:()=>false,protectedItem:()=>false,canMoveStoredItem:()=>true,
+ const c={call:(o,n,a=[])=>o[n](...a),list:x=>x,itemInfo:x=>x.info,isTradable:()=>false,protectedItem:()=>false,canMoveStoredItem:()=>true,workshopCapacity:()=>9,canRecycleItem:()=>false,protectedEquipped:()=>false,
   containerEntries:()=>[{item:material,place:'inventory'}],keyHash:()=>'',fixtureCatalogue:{recipes,tiers,normalMax:160,towerMax:100,maxCharacterLevel:100}};
  equipment.get_IsLocked=()=>false;
  vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/planner.js','utf8')+'\ncatalogueCache=fixtureCatalogue;equipmentPlans=()=>[];globalThis.run=inventoryOpportunities;',c);
@@ -84,7 +84,7 @@ test('pressure cleanup is configurable and keeps reserved, future-tier and rare 
 });
 
 test('manual inventory and growth panels remain open by default and resume when closed',()=>{
- for(const name of ['HeroPopup','HeroInfoPopup','StoragePopup','CubePopup']){
+ for(const name of ['HeroPopup','HeroInfoPopup','SkillTreePopup','StoragePopup','CubePopup']){
   const panel='DG.UI.Popup.'+name,policy=popupPolicy([panel],true,true);
   assert.deepEqual(Array.from(policy.blocked),[panel]);assert.equal(policy.cleanup,null);
   assert.equal(popupPolicy([panel],false).cleanup,panel);
@@ -112,6 +112,23 @@ test('inspection keeps the panel while blocking only conflicting submissions',()
  assert.equal(context.panelBlock('active',['DG.UI.Popup.StoragePopup']),false);
  assert.equal(context.panelBlock('equipment',['DG.UI.Popup.StoragePopup']),true);
  assert.equal(context.panelBlock('active',['DG.UI.Popup.HeroPopup']),true);
- assert.equal(context.panelBlock('rune',['DG.UI.Rune.RuneTreePopup']),true);
+ assert.equal(context.panelBlock('rune',['DG.UI.Rune.RuneTreePopup']),false);
  assert.equal(context.panelBlock('equipment',[]),false);
+});
+
+test('skill inspection permits independent growth and closing it restores skill work',()=>{
+ const name='DG.UI.Popup.SkillTreePopup',policy=popupPolicy([name],true,false);
+ assert.equal(policy.blocked.length,0);assert.equal(policy.cleanup,null);
+ for(const kind of ['box','equipment','rune','pet_unlock','pet_equip','deposit','withdraw'])assert.equal(context.panelBlock(kind,policy.manual),false,kind);
+ for(const kind of ['active','passive','skill_equip','skill_refund','skill_unequip','unlock','formation','progress','combine'])assert.equal(context.panelBlock(kind,policy.manual),true,kind);
+ assert.equal(context.panelBlock('active',popupPolicy([]).manual),false);
+ assert.equal(popupPolicy([name],false,false).cleanup,name);
+});
+
+test('confirmation and unknown siblings still take precedence over skill cleanup',()=>{
+ const name='DG.UI.Popup.SkillTreePopup';
+ for(const blocker of ['DG.UI.ConfirmPopup','DG.UI.LoadingPopup','unknown.Popup']){
+  const policy=popupPolicy([name,blocker],false,false);
+  assert.deepEqual(Array.from(policy.blocked),[blocker]);assert.equal(policy.cleanup,null);
+ }
 });

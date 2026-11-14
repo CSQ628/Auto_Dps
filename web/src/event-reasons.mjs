@@ -1,5 +1,12 @@
 const reasons={
- manual_panel_conflict:'当前手动窗口与此操作冲突，关闭窗口后恢复',sort_protected_stack:'此页有受保护的可堆叠物品，保留物品标识并等待手动整理',sort_conservation_failed:'排序后的物品核对未通过，已暂停相关自动化',item_drag_active:'正在拖拽物品，放下后恢复',
+ native_refund_blocked:'原生暂不允许天赋退款，继续主线重试与其他成长，稍后自动检查',
+ skill_catalogue_invalid:'技能目录校验未通过，记录警告并继续其他自动化',
+ frontier_battle_in_progress:'已进入未通关前沿，等本场结算后再返回练级；其他成长继续',
+ box_receipt_store_unavailable:'回执保存暂未完成，其他自动化继续；未知结果不会重复消费',
+ connection_recovered:'连接已自动恢复，继续自动化',automatic_pause_recovered:'旧版自动保护暂停已恢复，继续自动化',
+ tradable_state_changed:'仅记录异常警告，主机与沙盒的自动化继续运行',
+ native_box_rejected:'游戏未接受本次开箱，已保留箱子并稍后重试',box_result_unconfirmed:'开箱结果尚未确认，保留预约避免重复提交',box_queue_changed:'箱子数量已变化，重新检查',
+ manual_panel_conflict:'当前手动窗口与此操作冲突，关闭窗口后恢复',sort_protected_stack:'此页有受保护的可堆叠物品，仅跳过本页排序；开箱与其他成长继续检查',sort_conservation_failed:'本次排序核对有差异，继续检查其他可执行操作',item_drag_active:'正在拖拽物品，放下后恢复',
  inventory_full:'背包暂无空位，等待安全腾位',storage_full:'已开放仓库暂无空位，等待安全整理',storage_source_changed:'物品所在容器已变化，重新规划存取',
  storage_swap_changed:'交换物品状态已变化，重新检查仓库取料',protected_or_missing_item:'物品受保护或已移动，重新检查',
  user_item_operation:'正在进行物品操作，等待操作结束',user_popup_open:'游戏面板尚未关闭，等待面板处理完成',

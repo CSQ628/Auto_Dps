@@ -2,13 +2,13 @@ const fs=require('node:fs'),vm=require('node:vm'),test=require('node:test'),asse
 
 function fixture(){
  const calls=[];
- const gm={repeat:true,CanEnterStage:()=>true,GetRequireItemID:()=>0,
+ const gm={repeat:true,CanEnterStage:()=>true,GetRequireItemID:()=>0,IsStageEnding:()=>true,
   get_RepeatStage(){return this.repeat;},set_RepeatStage(value){calls.push(['repeat',value]);this.repeat=value;},
   GoToStage(...args){calls.push(['travel',...args]);}};
  const im={FindOccupyTarget:()=>null};
  const action={kind:'tower',key:'tower:2:free',level:2,ticket:0};
  const scan={snapshot:{account:'fixture',loaded:true,automationBlocked:[],sync:{},connection:{online:true},
-  stage:{category:0,level:9,repeat:true},record:{towerMaxCleared:1},catalogue:{towerMax:20}},actions:[action]};
+  stage:{category:0,level:9,repeat:true,running:false},record:{maxCleared:160,towerMaxCleared:1},catalogue:{normalMax:160,towerMax:20}},actions:[action]};
  const c={api:()=>()=>0,A:{fields:{}},iter:()=>[],klass:x=>x,withManagedThread:fn=>fn(),rpc:{exports:{}},
   jsonSafe:x=>x,list:x=>x,read:(o,n)=>o[n],ref:p=>p,call:(o,n,a=[])=>o[n](...a),
   single:n=>n==='DG.Manager.GameManager'?gm:im,scan};

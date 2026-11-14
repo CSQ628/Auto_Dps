@@ -11,8 +11,8 @@ function fixture(){
   TryExchange:(from,index,to,slot)=>{mutations.push({uid:from.items[index].uid,slot});[from.items[index],to.items[slot]]=[to.items[slot],from.items[index]];return true;}};
  const context={api:name=>name==='array_new'?(_klass,n)=>{const array=Array(n).fill(null);array.add=offset=>({writePointer:p=>{array[(offset-32)/8]=p;}});return array;}:()=>64,
   klass:x=>x,Memory:{alloc:n=>({n})},PS:8,nil:null,gcNew:p=>{rooted++;return p;},gcFree:p=>{rooted--;freed.push(p);},
-  list:x=>x,read:(o,n)=>o[n],ref:p=>p,single:()=>im,call:(o,n,args=[])=>o[n](...args)};
- vm.createContext(context);vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.subject={equipmentPlans,equipAction,equipmentScorer,allocateEquipment,guardedEquipmentAction,protectedItem,approvedMaterials};',context);
+  list:x=>x,read:(o,n)=>o[n],ref:p=>p,single:()=>im,call:(o,n,args=[])=>{if(typeof o[n]==='function')return o[n](...args);const key={get_Index:'index',get_ConfigID:'id',get_Ability:'ability',get_Value:'value'}[n];if(key)return o[key]??0;throw Error('unexpected native call '+n);}};
+ vm.createContext(context);vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.subject={equipmentPlans,equipAction,equipmentScorer,allocateEquipment,guardedEquipmentAction,protectedItem,approvedMaterials,equipmentRevision,equipmentContext,equipmentContextMatches};',context);
  return {item,character,gear,im,inv,storage,mutations,freed,rooted:()=>rooted,...context.subject};
 }
 test('all three characters and every slot receive independent upgrade plans',()=>{
@@ -56,12 +56,13 @@ for(const source of ['inventory','storage'])test(source+' socketed gear upgrades
  assert.equal(f.protectedItem(f.im,f.gear.get(3).items[0]),true);
 });
 
-test('socketed tradable equipment is eligible while unknown trade state remains protected',()=>{
+test('socketed and unknown-trade equipment can be worn without authorizing consumption',()=>{
  const f=fixture(),chars=[f.character(2,[null])];
  f.inv.items=[f.item('trade',100,[0],{config:{Tradable:true},sockets:[1]}),f.item('unknown',100,[0],{config:{},sockets:[1]})];
  const details=[];assert.equal(f.equipmentPlans(f.im,chars,[],details).length,1);
  assert.equal(details[0].slotDetails[0].status,'upgrade_ready');
- assert.equal(f.equipAction({id:2,slot:0,uid:'unknown',previousUid:null}).status,'stale');assert.equal(f.mutations.length,0);
+ assert.equal(f.equipAction({id:2,slot:0,uid:'unknown',previousUid:null}).status,'confirmed');assert.equal(f.mutations.length,1);
+ assert.equal(f.approvedMaterials(f.im,['trade']),null);
 });
 
 test('empty slots distinguish missing items, native rejection and shared assignments',()=>{
@@ -75,9 +76,9 @@ test('empty slots distinguish missing items, native rejection and shared assignm
  assert.equal(details[2].slotDetails[0].status,'native_rejected');
  assert.equal(details[2].slotDetails[1].status,'no_candidate');
 });
-test('locked, registered and unconfirmed candidates stay untouched',()=>{
+test('locked and registered candidates stay untouched',()=>{
  const f=fixture(),chars=[f.character(1,[null])];
- f.inv.items=[f.item('locked',100,undefined,{locked:true}),f.item('registered',100,undefined,{registered:true}),f.item('unknown',100,undefined,{confirmed:false})];
+ f.inv.items=[f.item('locked',100,undefined,{locked:true}),f.item('registered',100,undefined,{registered:true})];
  assert.equal(f.equipmentPlans(f.im,chars).length,0);assert.equal(f.mutations.length,0);
 });
 test('locked equipment slots cannot be replaced',()=>{
@@ -167,4 +168,51 @@ test('unavailable native scoring preserves potential equipment from material con
  const f=fixture(),chars=[f.character(1,[null])],p=f.item('candidate',10);f.inv.items=[p];f.im.TryBuildScoreBasis=()=>false;
  const reserved=new Set(),details=[];assert.equal(f.equipmentPlans(f.im,chars,[],details,reserved).length,0);
  assert.equal(details[0].status,'score_unavailable');assert.ok(reserved.has('candidate'));
+});
+
+test('only the three arranged heroes receive equipment plans when reserves are owned',()=>{
+ const f=fixture(),chars=[1,2,3,4].map(id=>f.character(id,[null]));f.inv.items=[1,2,3,4].map(id=>f.item('item-'+id,10));
+ const plans=f.equipmentPlans(f.im,chars,[3,1,2]);assert.equal(plans.length,3);assert.equal(plans.some(p=>p.id===4),false);
+});
+
+test('unconfirmed equipment and ordinary acknowledgement changes do not damage trade value',()=>{
+ const f=fixture(),old=f.item('old',1,[0],{config:{Tradable:true},confirmed:false}),upgrade=f.item('upgrade',10,[0],{config:{Tradable:true},confirmed:false});
+ const chars=[f.character(1,[old])];f.inv.items=[upgrade];
+ const [plan]=f.equipmentPlans(f.im,chars,[1]);assert.ok(plan);
+ const native=f.im.TryExchange;f.im.TryExchange=(...args)=>{const ok=native(...args);old.confirmed=true;return ok;};
+ const r=f.guardedEquipmentAction(plan,chars);assert.equal(r.status,'confirmed');assert.equal(r.tradeChanged.length,0);
+ assert.equal(old.config.Tradable,true);assert.equal(upgrade.config.Tradable,true);
+ assert.equal(f.approvedMaterials(f.im,[old.uid]),null);
+});
+
+
+test('equipment revisions include full sockets with stable native collection order',()=>{
+ const f=fixture(),first={index:0,id:10,ability:'Attack',value:1},second={index:1,id:11,ability:'Defense',value:2};
+ const gear=f.item('same',1,[0],{sockets:[second,first]});
+ const before=f.equipmentRevision(gear);gear.sockets.reverse();assert.equal(f.equipmentRevision(gear),before);
+ gear.sockets[0]={...first,value:3};assert.notEqual(f.equipmentRevision(gear),before);
+ const chars=[f.character(1,[gear])];f.inv.items=[f.item('new',10,[0],{sockets:[first]})];
+ assert.equal(f.equipmentPlans(f.im,chars)[0].itemRevision,f.equipmentRevision(f.inv.items[0]));
+});
+
+test('party context is stable across roster order and ignores bench equipment',()=>{
+ const f=fixture(),r=uid=>f.equipmentRevision(f.item(uid,1));
+ const characters=[{id:2,equipment:[{slot:1,revision:r('B')},{slot:0,revision:r('A')}]},{id:1,equipment:[]},{id:9,equipment:[{slot:0,revision:r('bench')}]}];
+ const snapshot={squad:[1,2],characters};const before=f.equipmentContext(snapshot);
+ characters.reverse();characters.find(c=>c.id===2).equipment.reverse();characters[0].equipment[0].revision=r('bench-new');
+ assert.equal(f.equipmentContext(snapshot),before);
+ characters.find(c=>c.id===2).equipment[0].revision=r('manual');assert.notEqual(f.equipmentContext(snapshot),before);
+});
+
+test('real executor rejects any changed party or candidate revision before native mutation',()=>{
+ const f=fixture(),base={kind:'equipment',key:'equip',id:1,slot:0,uid:'B',previousUid:'A',itemRevision:'B-revision'};
+ const snapshot={account:'fixture',loaded:true,sync:{},equipmentContext:'original-party'};let current={...base},calls=0;
+ const c={api:()=>()=>0,A:{fields:{}},iter:()=>[],klass:x=>x,withManagedThread:f=>f(),rpc:{exports:{}},equipmentContextMatches:f.equipmentContextMatches,scan:()=>({snapshot,actions:[current]}),bridgeStrategy:x=>x||{},maintenanceStatus:()=>({active:false}),panelActionBlocked:()=>false,skillReallocationPending:()=>false,single:()=>({}),names:{data:'data',items:'items'},guardedEquipmentAction:()=>{calls++;return {status:'confirmed'};}};
+ vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/automation.js','utf8')+'\nopportunityScan=scan;',c);
+ const cmd={...base,account:'fixture',equipmentStability:{schema:1,context:'original-party'}};
+ for(const mutate of [()=>snapshot.equipmentContext='manual-other-slot',()=>current.itemRevision='socket-changed',()=>current.previousUid='manual-target']){
+  snapshot.equipmentContext='original-party';current={...base};mutate();
+  assert.equal(c.executeAction(cmd).reason,'equipment_context_changed');assert.equal(calls,0);
+ }
+ snapshot.equipmentContext='original-party';current={...base};assert.equal(c.executeAction(cmd).status,'confirmed');assert.equal(calls,1);
 });

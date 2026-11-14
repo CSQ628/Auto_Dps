@@ -17,6 +17,7 @@ import psutil
 ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(ROOT))
 from dps_assistant.loopback import LoopbackHTTPServer
+from dps_assistant.box_receipts import BoxReceiptStore
 
 
 class NotReady(RuntimeError):
@@ -26,7 +27,7 @@ class NotReady(RuntimeError):
 
 
 class BridgeHost:
-    def __init__(self, pid, root=ROOT, attach=None):
+    def __init__(self, pid, root=ROOT, attach=None, process_created=None, receipt_directory=None):
         self.pid, self.root, self.attach = pid, root, attach
         self.started = time.monotonic()
         self.state_lock, self.operation_lock = threading.RLock(), threading.RLock()
@@ -34,6 +35,7 @@ class BridgeHost:
         self.session = self.script = None
         self.source_hash = None
         self.closed = False
+        self.process_created=process_created;self.receipt_directory=receipt_directory;self.box_store=None
 
     def health(self):
         # Initialization and native calls must never block this lock or the health endpoint.
@@ -65,8 +67,15 @@ class BridgeHost:
             self.script.load()
             with self.state_lock:
                 self.step = 'exports'
-            if 'opportunities' not in self.script.list_exports_sync():
+            exports=self.script.list_exports_sync()
+            if 'opportunities' not in exports:
                 raise RuntimeError('bridge_script_initialization_incomplete')
+            if 'restoreboxreceipts' in exports:
+                created=psutil.Process(self.pid).create_time()
+                if self.process_created is not None and abs(created-self.process_created)>.001:
+                    raise RuntimeError('game_process_identity_changed')
+                self.box_store=BoxReceiptStore(self.pid,created,self.receipt_directory)
+                self.script.exports_sync.restoreboxreceipts(self.box_store.restore())
             with self.state_lock:
                 if self.closed or self.phase == 'failed':
                     return
@@ -100,8 +109,14 @@ class BridgeHost:
                         'sha256': hashlib.sha256(data).hexdigest(), 'zip': base64.b64encode(data).decode()}
             fn = getattr(self.script.exports_sync, op)
             result = fn(request['args']) if 'args' in request else fn()
+            if self.box_store is not None and op in ('openboxes','boxscan') and isinstance(result,dict):
+                receipt=result if op=='openboxes' else result.get('receipt')
+                if receipt:self.box_store.checkpoint(receipt)
+                result['receiptPersistence']='unavailable' if self.box_store.failed else 'available'
             if op == 'opportunities':
-                result['snapshot']['bridgeSourceHash'] = self.source_hash
+                result['bridgeSourceHash'] = self.source_hash
+                if isinstance(result.get('snapshot'), dict):
+                    result['snapshot']['bridgeSourceHash'] = self.source_hash
             elif op == 'snapshot':
                 result['bridgeSourceHash'] = self.source_hash
             return result
@@ -163,7 +178,7 @@ def handler_for(host, token):
                 if not 0 < size < 65536:
                     return self.send_json(400, {'error': 'body_size'})
                 request = json.loads(self.rfile.read(size))
-                if not isinstance(request, dict) or request.get('op') not in ('snapshot', 'opportunities', 'execute', 'backup'):
+                if not isinstance(request, dict) or request.get('op') not in ('snapshot', 'opportunities', 'execute', 'backup', 'boxscan', 'openboxes'):
                     return self.send_json(400, {'error': 'unknown_operation'})
                 result = host.call(request)
                 self.send_json(200, {'result': result, 'pid': host.pid})
@@ -192,10 +207,11 @@ def main(argv=None):
     parser.add_argument('--pid', type=int, required=True)
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--token', required=True)
+    parser.add_argument('--target-created', type=float)
     parser.add_argument('--owner-pid', type=int, required=True)
     parser.add_argument('--owner-created', type=float, required=True)
     args = parser.parse_args(argv)
-    host = BridgeHost(args.pid)
+    host = BridgeHost(args.pid,process_created=args.target_created)
     # Bind before importing/attaching Frida: the parent can distinguish slow startup from a dead helper.
     server = LoopbackHTTPServer(('127.0.0.1', args.port), handler_for(host, args.token))
     threading.Thread(target=watch_owner, args=(args.owner_pid, args.owner_created), daemon=True).start()

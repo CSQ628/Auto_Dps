@@ -60,7 +60,7 @@ class ExperienceTests(unittest.TestCase):
 
 
 class FarmRecoveryTests(unittest.TestCase):
-    def test_only_distinct_confirmed_farming_failures_trigger_lower_free_target(self):
+    def test_distinct_farming_failures_wait_for_sampled_efficiency_before_switching(self):
         s, state = snapshot(), {'growth': {'phase': 'farm'}}
         observe_farming(s, state, 'game', 100)
         state['battle_observation'] = {'outcomes': [failed(1), failed(1), failed(2, category=1),
@@ -68,13 +68,13 @@ class FarmRecoveryTests(unittest.TestCase):
         self.assertEqual(observe_farming(s, state, 'game', 160)['level'], 9)
         state['battle_observation']['outcomes'].append(failed(7))
         r = observe_farming(s, state, 'game', 161)
-        self.assertEqual(r['level'], 8)
-        self.assertEqual(r['failures'], 0)
-        self.assertEqual(observe_farming(s, state, 'game', 162)['level'], 8)
+        self.assertEqual(r['level'], 9)
+        self.assertEqual(r['failures'], 2)
+        self.assertEqual(observe_farming(s, state, 'game', 162)['level'], 9)
         actions = [{'kind': 'progress', 'key': str(n), 'mode': 'farm', 'priority': 107, 'level': n, 'difficulty': 0} for n in (9, 8, 7)]
-        self.assertEqual(choose({'snapshot': s, 'actions': actions}, DEFAULT, state, 163)['level'], 8)
-        # Already repeating the selected target must not cause travel to another candidate.
-        self.assertIsNone(choose({'snapshot': s, 'actions': [actions[0], actions[2]]}, DEFAULT, state, 164))
+        self.assertEqual(choose({'snapshot': s, 'actions': actions}, DEFAULT, state, 163)['level'], 9)
+        # Staying on the selected highest map is not a travel to another candidate.
+        self.assertEqual(choose({'snapshot': s, 'actions': [actions[0], actions[2]]}, DEFAULT, state, 164)['level'], 9)
 
     def test_recovery_survives_push_and_gear_changes_but_reassesses_real_progress(self):
         for reset in ('frontier', 'level', 'session', 'config'):
@@ -85,13 +85,16 @@ class FarmRecoveryTests(unittest.TestCase):
                 observe_farming(s, state, 'game', 160)
                 state['growth']['phase'] = 'push'
                 s['characters'][0]['equipment'] = [{'uid': 'upgrade'}]
-                self.assertEqual(observe_farming(s, state, 'game', 170)['level'], 8)
+                self.assertEqual(observe_farming(s, state, 'game', 170)['level'], 9)
                 session, config = 'game', copy.deepcopy(DEFAULT)
-                if reset == 'frontier': s['record']['maxCleared'] += 1
+                if reset == 'frontier':
+                    s['record']['maxCleared'] += 1
+                    s['progression']['farmCandidates'] = [{'level': 11, 'difficulty': 0}, {'level': 9, 'difficulty': 0}]
                 if reset == 'level': s['characters'][0]['level'] += 1
                 if reset == 'session': session = 'new-game'
                 if reset == 'config': config['strategy']['farm_candidate_count'] = 3
-                self.assertEqual(observe_farming(s, state, session, 180, config)['level'], 9)
+                expected = 11 if reset == 'frontier' else 9
+                self.assertEqual(observe_farming(s, state, session, 180, config)['level'], expected)
 
     def test_no_candidate_or_lowest_candidate_never_invents_a_destination(self):
         s, state = snapshot(), {'growth': {'phase': 'farm'}}
@@ -102,7 +105,7 @@ class FarmRecoveryTests(unittest.TestCase):
         s['progression']['farmCandidates'] = []
         self.assertIsNone(observe_farming(s, state, 'game', 170))
         s['progression']['farmCandidates'] = [{'level': 8, 'difficulty': 0}]
-        self.assertIsNone(observe_farming(s, state, 'game', 180))
+        self.assertEqual(observe_farming(s, state, 'game', 180)['level'], 8)
 
     def test_changed_failure_threshold_is_applied_without_losing_route(self):
         s, state = snapshot(), {'growth': {'phase': 'farm'}}
@@ -110,7 +113,7 @@ class FarmRecoveryTests(unittest.TestCase):
         state['battle_observation'] = {'outcomes': [failed(1)]}
         config = copy.deepcopy(DEFAULT)
         config['strategy']['farm_failure_limit'] = 1
-        self.assertEqual(observe_farming(s, state, 'game', 160, config)['level'], 8)
+        self.assertEqual(observe_farming(s, state, 'game', 160, config)['level'], 9)
 
     def test_battle_attribution_marks_farming_only_after_live_repeat_observation(self):
         s, state = snapshot(), {'growth': {'phase': 'farm'}}

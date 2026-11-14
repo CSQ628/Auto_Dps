@@ -298,6 +298,17 @@ class BridgeReadinessTests(unittest.TestCase):
             host.close()
         self.assertEqual(results, [{'status': 'confirmed'}])
 
+    def test_prelogin_maintenance_crosses_authenticated_host_without_a_full_snapshot(self):
+        script=Script()
+        script.opportunities=lambda:{'snapshot':None,'runtime':{'ready':False,'maintenance':{'known':True,'active':True,'canExit':True}},'actions':[],'issues':[]}
+        host=BridgeHost(123,self.root,lambda pid:Session(script));host.initialize()
+        try:
+            value=client(self.serve(host).server_port).call('opportunities')
+            self.assertIsNone(value['snapshot'])
+            self.assertTrue(value['runtime']['maintenance']['active'])
+            self.assertEqual(value['bridgeSourceHash'],host.source_hash)
+        finally:host.close()
+
     def test_detached_session_reports_failure_instead_of_stale_ready(self):
         host = BridgeHost(123, self.root, lambda pid: Session(Script()))
         host.initialize()

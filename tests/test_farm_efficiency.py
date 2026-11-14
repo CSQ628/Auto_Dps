@@ -22,7 +22,7 @@ def fixture():
     return snapshot, state, config
 
 
-def visit(snapshot, state, config, start, gain, level, sequence):
+def visit(snapshot, state, config, start, gain, level, sequence, outcome='Cleared'):
     snapshot['stage']['level'] = level
     current = snapshot['combat']['current']
     current.update(level=level, sequence=sequence, result='InProgress', elapsed=1)
@@ -31,10 +31,10 @@ def visit(snapshot, state, config, start, gain, level, sequence):
         snapshot['characters'][0]['expTotal'] += gain
         current['elapsed'] = index * 10
         if index == 3:
-            current['result'] = 'Cleared'
+            current['result'] = outcome
             state.setdefault('battle_observation', {}).setdefault('outcomes', []).append(
                 {'sequence': sequence, 'category': 0, 'level': level, 'difficulty': 0,
-                 'result': 'Cleared', 'farming': True, 'started': start + .1, 'observed': start + 30})
+                 'result': outcome, 'farming': True, 'started': start + .1, 'observed': start + 30})
         result = observe_farming(snapshot, state, 'game', start + index * 10, config)
     return result
 
@@ -108,18 +108,21 @@ class FarmEfficiencyTests(unittest.TestCase):
                 else:
                     self.assertFalse(result['efficiency']['measurements'])
 
-    def test_failure_fallback_excludes_failed_candidate_until_level_changes(self):
+    def test_two_failures_are_measured_before_exploring_the_next_current_chapter_map(self):
         snapshot, state, config = fixture()
-        observe_farming(snapshot, state, 'game', 100, config)
-        state['battle_observation'] = {'outcomes': [{'sequence': n, 'category': 0, 'level': 9, 'difficulty': 0,
-            'result': 'Failed', 'farming': True, 'started': 101, 'observed': 130} for n in (1, 2)]}
-        result = observe_farming(snapshot, state, 'game', 130, config)
+        result = visit(snapshot, state, config, 100, 20, 9, 1, 'Failed')
+        self.assertEqual(result['level'], 9)
+        self.assertFalse(result['efficiency']['measurements'][0]['ready'])
+        result = visit(snapshot, state, config, 140, 20, 9, 2, 'Failed')
         self.assertEqual(result['level'], 8)
-        result = visit(snapshot, state, config, 140, 10, 8, 3)
-        self.assertEqual(result['level'], 8)
-        self.assertEqual(state['farm_route']['failed_stages'], ['9:0'])
+        measured = next(p for p in result['efficiency']['measurements'] if p['level'] == 9)
+        self.assertEqual(measured['failures'], 2)
+        self.assertTrue(measured['ready'])
+        self.assertEqual(state['farm_route']['failed_stages'], [])
+        result = visit(snapshot, state, config, 180, 10, 8, 3, 'Cleared')
+        self.assertEqual(result['level'], 9)
         snapshot['characters'][0]['level'] += 1
-        self.assertEqual(observe_farming(snapshot, state, 'game', 180, config)['level'], 9)
+        self.assertEqual(observe_farming(snapshot, state, 'game', 220, config)['level'], 9)
 
     def test_expiry_and_switch_toggle_use_current_parameters(self):
         snapshot, state, config = fixture()

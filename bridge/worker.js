@@ -123,8 +123,19 @@ const objectNew=api('object_new','pointer',['pointer']);
 // This Unity runtime uses pointer-sized Il2CppGCHandle values.
 const gcNew=api('gchandle_new','pointer',['pointer','bool']);
 const gcFree=api('gchandle_free','void',['pointer']);
-const handles=[];let runeProvider=null;
-function runesProvider(){if(!runeProvider){runeProvider=objectNew(klass('DG.UI.Rune.RuneSaveStateProvider'));call(runeProvider,'.ctor');handles.push(gcNew(runeProvider,0));}return runeProvider;}
+const handles=[];let runeProvider=null,runeProviderHandle=null;
+function releaseRunesProvider(){
+ if(runeProviderHandle!==null)gcFree(runeProviderHandle);
+ runeProvider=null;runeProviderHandle=null;
+}
+function refreshRunesProvider(){
+ // RuneSaveStateProvider keeps a private level cache. Rebuild from native records
+ // once per complete scan, including execution's prerequisite scan, not per node.
+ const next=objectNew(klass('DG.UI.Rune.RuneSaveStateProvider')),handle=gcNew(next,0);
+ try{call(next,'.ctor');}catch(error){gcFree(handle);throw error;}
+ releaseRunesProvider();runeProvider=next;runeProviderHandle=handle;return next;
+}
+function runesProvider(){return runeProvider||refreshRunesProvider();}
 const queue=[];let servicing=false;
 function onMain(fn){return new Promise((resolve,reject)=>{const entry={fn,resolve,reject,deadline:Date.now()+10000};queue.push(entry);entry.timer=setTimeout(()=>{const i=queue.indexOf(entry);if(i>=0){queue.splice(i,1);reject(Error('main_thread_timeout'));}},10000);});}
 const hook=Interceptor.attach(method(klass('DG.InGame.Battle.Manager.BattleManager'),'Update',0).readPointer(),{
@@ -165,5 +176,5 @@ Object.assign(rpc.exports,{
    if(spec.list)value=list(value).map(p=>spec.fields?Object.fromEntries(spec.fields.map(f=>[f,read(p,f)])):p);
    return jsonSafe(value);
  });},
- dispose(){hook.detach();withManagedThread(()=>handles.splice(0).forEach(handle=>gcFree(handle)));while(queue.length){const job=queue.shift();clearTimeout(job.timer);job.reject(Error('disposed'));}return true;}
+ dispose(){hook.detach();withManagedThread(()=>{releaseRunesProvider();handles.splice(0).forEach(handle=>gcFree(handle));});while(queue.length){const job=queue.shift();clearTimeout(job.timer);job.reject(Error('disposed'));}return true;}
 });

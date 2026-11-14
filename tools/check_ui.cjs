@@ -34,6 +34,10 @@ const base=process.env.DPS_TEST_URL||'http://127.0.0.1:17861',output=process.env
   await agree.click();await dialog.waitFor({state:'hidden'});assert.equal((await state()).preferences.noticeAccepted,true);
   await page.reload();await page.getByRole('heading',{name:'远征概览'}).waitFor();assert.equal(await dialog.count(),0);
   await page.setViewportSize({width:1440,height:1000});
+  const picker=await page.locator('#current-instance').boundingBox();
+  const connect=await page.getByRole('button',{name:'自定义多个连接',exact:true}).boundingBox();
+  assert.ok(picker&&connect&&connect.x>=picker.x+picker.width,'custom connections button must sit to the right of the current-view picker');
+  report.connectionButtonRightOfCurrentView=true;
   await page.getByRole('button',{name:'自动化策略',exact:true}).click();
   assert.equal(await page.locator('.module').count(),16);
   for(const details of await page.locator('.module-tuning').all())await details.locator('summary').click();
@@ -60,11 +64,11 @@ const base=process.env.DPS_TEST_URL||'http://127.0.0.1:17861',output=process.env
   await page.locator('#parameter-group-workshop').getByRole('button',{name:'恢复本组默认值'}).click();
   await persist('recycle_batch',12);await page.waitForFunction(()=>document.querySelector('#parameter-recycle_batch').value==='12');
   const recommended=page.getByRole('switch',{name:'使用职业推荐主动组合',exact:true});await recommended.uncheck();await persist('recommended_actives',false);
-  await page.getByRole('combobox',{name:'宠物切换偏好'}).click();await page.getByRole('option',{name:'保留当前宠物',exact:true}).click();await persist('pet_mode','keep');
+  await page.getByRole('combobox',{name:'跟随宠物偏好'}).click();await page.getByRole('option',{name:'完全保留，不自动选择',exact:true}).click();await persist('pet_mode','keep');
   await page.reload();await page.getByRole('button',{name:'参数设置',exact:true}).click();await recommended.waitFor();assert.equal(await recommended.isChecked(),false);
-  assert.equal(await page.getByRole('combobox',{name:'宠物切换偏好'}).textContent(),'保留当前宠物');
+  assert.equal(await page.getByRole('combobox',{name:'跟随宠物偏好'}).textContent(),'完全保留，不自动选择');
   await recommended.check();await persist('recommended_actives',true);
-  await page.getByRole('combobox',{name:'宠物切换偏好'}).click();await page.getByRole('option',{name:'随练级与推进切换',exact:true}).click();await persist('pet_mode','auto');
+  await page.getByRole('combobox',{name:'跟随宠物偏好'}).click();await page.getByRole('option',{name:'保留当前，空缺时补齐',exact:true}).click();await persist('pet_mode','auto');
   await inspect('parameters-mobile');await page.setViewportSize({width:1440,height:1000});await inspect('parameters-desktop');
 
   for(const theme of ['深色界面','浅色界面']){
@@ -76,14 +80,16 @@ const base=process.env.DPS_TEST_URL||'http://127.0.0.1:17861',output=process.env
     }
    }
   }
-  await page.getByRole('button',{name:'连接游戏',exact:true}).click();await dialog.waitFor();
+  await page.getByRole('button',{name:'自定义多个连接',exact:true}).click();await dialog.waitFor();
   await page.getByRole('button',{name:'重新扫描',exact:true}).waitFor();
   await page.waitForFunction(()=>document.querySelector('.connection-toolbar')?.textContent.includes('找到'));
   await page.getByRole('textbox',{name:'手动填写游戏 PID'}).fill('1');await page.getByRole('button',{name:'绑定实例',exact:true}).click();
   await dialog.getByRole('alert').waitFor();report.invalidPidRejected=true;
   await inspect('connection-mobile');await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'});
-  await page.setViewportSize({width:1440,height:1000});await page.getByRole('button',{name:'连接游戏',exact:true}).click();await dialog.waitFor();
+  await page.setViewportSize({width:1440,height:1000});await page.getByRole('button',{name:'自定义多个连接',exact:true}).click();await dialog.waitFor();
   await page.waitForFunction(()=>document.querySelector('.connection-toolbar')?.textContent.includes('找到'));
+  for(const pid of [22172,30952]){await page.getByRole('textbox',{name:'手动填写游戏 PID'}).fill(String(pid));await page.getByRole('button',{name:'绑定实例',exact:true}).click();await dialog.getByRole('status').waitFor();assert.ok(await dialog.isVisible());}
+  const bound=(await state()).instances.filter(i=>i.binding==='manual');assert.equal(bound.length,2);report.multipleBindings=bound.length;
   await inspect('connection-desktop');await page.getByRole('button',{name:'完成',exact:true}).click();
   await page.getByRole('button',{name:'参数设置',exact:true}).click();
   const source=page.locator('.source-address a');assert.equal(await source.getAttribute('href'),'https://github.com/weixiao030/Auto_Dps');

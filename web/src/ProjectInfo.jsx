@@ -14,7 +14,7 @@ export function SidebarSupport(){
  const [expanded,setExpanded]=useState(false),[previewOpen,setPreviewOpen]=useState(false),[imageError,setImageError]=useState(false);
  function openOriginal(){setPreviewOpen(false);setExpanded(true);}
  return <div className="sidebar-support"><Popover open={previewOpen&&!expanded} onOpenChange={(_,d)=>setPreviewOpen(d.open)} openOnHover unstable_disableAutoFocus positioning={{position:'after',align:'bottom',offset:12,fallbackPositions:['below','above'],overflowBoundaryPadding:16}}>
-  <PopoverTrigger disableButtonEnhancement><button type="button" className="sidebar-support-trigger" aria-label="赞赏作者，点击查看原图" aria-haspopup="dialog" onClick={openOriginal}>{imageError?<Heart size={24}/>:<img src="/appreciation-code.webp" alt="" width="36" height="36" onError={()=>setImageError(true)}/>}</button></PopoverTrigger>
+  <PopoverTrigger disableButtonEnhancement><button type="button" className="sidebar-support-trigger" aria-label="赞赏作者，点击查看原图" aria-haspopup="dialog" onClick={openOriginal}>{imageError?<Heart size={24}/>:<img src="/appreciation-code.webp" alt="" width="56" height="56" onError={()=>setImageError(true)}/>}</button></PopoverTrigger>
   <PopoverSurface className="sidebar-support-preview"><button type="button" onClick={openOriginal} aria-label="查看赞赏码原图"><img src="/appreciation-code.webp" alt="作者微信赞赏码预览" width="220" height="220"/></button><p>自愿赞赏 · 点击查看原图</p></PopoverSurface>
  </Popover><AppreciationDialog open={expanded} onOpenChange={setExpanded}/></div>;
 }

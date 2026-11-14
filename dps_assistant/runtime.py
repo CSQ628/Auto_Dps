@@ -1,6 +1,7 @@
 import ctypes
 from ctypes import wintypes as W
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -69,7 +70,55 @@ def box_for(pid):
         _api=lib.SbieApi_QueryProcess;_api.argtypes=[W.HANDLE,W.LPWSTR,W.LPWSTR,W.LPWSTR,ctypes.POINTER(W.ULONG)];_api.restype=W.LONG
     box=ctypes.create_unicode_buffer(64);image=ctypes.create_unicode_buffer(512);sid=ctypes.create_unicode_buffer(256);session=W.ULONG()
     status=_api(pid,box,image,sid,ctypes.byref(session))
-    return box.value if status==0 else ''
+    if status==0:return box.value
+    # Sandboxie explicitly reports INVALID_CID for a process outside a box.
+    if status & 0xffffffff==0xc000000b:return ''
+    raise OSError('sandbox_process_query_unavailable')
+
+def game_presence(box=''):
+    """Existence needs neither a readable exe path nor loaded Unity metadata."""
+    unknown=False
+    try:
+        for process in psutil.process_iter():
+            try:
+                name=process.name()
+                if not name:
+                    unknown=True;continue
+                if name.casefold()!='dps.exe':continue
+                if box_for(process.pid)==box:return 'present'
+            except psutil.NoSuchProcess:continue
+            except (psutil.AccessDenied,OSError):unknown=True
+    except (psutil.Error,OSError):unknown=True
+    return 'unknown' if unknown else 'absent'
+
+
+
+def process_lifetime_status(identity):
+    """A terminal old PID/lifetime is provable even when its exe path is unreadable."""
+    if not isinstance(identity,dict):return 'unknown'
+    pid,created=identity.get('pid'),identity.get('created')
+    if (type(pid) is not int or pid<=0 or type(created) not in (int,float)
+            or not math.isfinite(created) or created<=0):return 'unknown'
+    try:
+        actual=psutil.Process(pid).create_time()
+        if type(actual) not in (int,float) or not math.isfinite(actual):return 'unknown'
+        return 'present' if abs(actual-created)<=.001 else 'absent'
+    except (psutil.NoSuchProcess,psutil.ZombieProcess):return 'absent'
+    except (psutil.AccessDenied,OSError):return 'unknown'
+
+
+def process_identity_status(identity):
+    """Revalidate a known lifetime without requiring metadata to remain readable."""
+    try:
+        process=psutil.Process(identity['pid'])
+        if abs(process.create_time()-identity['created'])>.001:return 'absent'
+        if Path(process.exe()).resolve()!=Path(identity['exe']).resolve():return 'absent'
+        if box_for(identity['pid'])!=identity['box']:return 'absent'
+        if abs(psutil.Process(identity['pid']).create_time()-identity['created'])>.001:return 'absent'
+        return 'present'
+    except (psutil.NoSuchProcess,psutil.ZombieProcess):return 'absent'
+    except (psutil.AccessDenied,OSError):return 'unknown'
+
 
 def discover():
     global GAME
@@ -105,7 +154,7 @@ class Bridge:
         self.identity=identity;self.token=secrets.token_urlsafe(32)
         with socket.socket() as s:s.bind(('127.0.0.1',0));self.port=s.getsockname()[1]
         self.started=time.time();self.closed=False;self.closing=threading.Event();self.last_health=None;self.prefer_native=True
-        args=[*bridge_command(),'--pid',str(identity['pid']),'--port',str(self.port),'--token='+self.token,
+        args=[*bridge_command(),'--pid',str(identity['pid']),'--target-created',str(identity['created']),'--port',str(self.port),'--token='+self.token,
               '--owner-pid',str(os.getpid()),'--owner-created',str(psutil.Process().create_time())]
         if identity['box']:args=[str(SBIE/'Start.exe'),'/silent','/wait','/box:'+identity['box'],*args]
         log=(DATA/f"bridge-{identity['pid']}.log").open('ab')
@@ -115,7 +164,7 @@ class Bridge:
         try:
             process=psutil.Process(self.identity['pid'])
             return abs(process.create_time()-self.identity['created'])<.01 and Path(process.exe()).resolve()==Path(self.identity['exe']).resolve() and box_for(process.pid)==self.identity['box']
-        except psutil.Error:return False
+        except (psutil.Error,OSError):return False
     def call(self,op,args=None):
         if not self.valid():raise RuntimeError('game_process_identity_changed')
         # Only observation may be repeated after a lost connection. Never replay execute/backup.
@@ -198,7 +247,17 @@ def backup_save(identity,directory):
     atomic_json(target/'assistant-backup.json',{'identity':identity,'source':str(src),'created':time.time()})
     return {'status':'created','path':str(target)}
 
+_launch_lock=threading.Lock()
+
+
 def launch(box='',game_path=None):
+    # A second check closes the discovery-to-launch race, including manual callers.
+    with _launch_lock:
+        if game_presence(box)!='absent':return None
+        return _launch_absent(box,game_path)
+
+
+def _launch_absent(box='',game_path=None):
     global GAME
     if game_path:
         from .connections import game_executable
@@ -210,6 +269,7 @@ def launch(box='',game_path=None):
         if not box.replace('_','').isalnum():raise ValueError('invalid_sandbox_name')
         prepare_sandbox_boot(box)
         args=[str(SBIE/'Start.exe'),'/silent','/box:'+box,*args]
+    if game_presence(box)!='absent':return None
     return subprocess.Popen(args,cwd=GAME.parent,creationflags=subprocess.CREATE_NO_WINDOW).pid
 
 def sandbox_root(box):

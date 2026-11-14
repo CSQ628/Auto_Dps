@@ -19,7 +19,7 @@ function fixture(){
  const context={Date:{now:()=>clock.now},keyHash:x=>x,api:()=>()=>0,list:x=>x,read:(o,n)=>o[n],single:n=>n==='DG.UI.PopupLayoutHandler'?popup:im,ref:p=>p,sceneObject:()=>({}),
   call:(o,n,args=[])=>{if(typeof o[n]!=='function')throw Error('unexpected native call '+n);return o[n](...args);}};
  vm.createContext(context);
- vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.sceneObject=()=>({});globalThis.subject={protectedItem,storageAction,equipAction,forgeAction,refineAction,cubeAction,approvedMaterials,checkPreserved,guardedItemAction,protectedEquipmentCandidate,protectedEquipped,canMoveStoredItem,guardedStorageAction,itemSortPlans,sortItemsAction};',context);
+ vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.sceneObject=()=>({});globalThis.subject={protectedItem,storageAction,equipAction,forgeAction,refineAction,cubeAction,approvedMaterials,checkPreserved,guardedItemAction,protectedEquipmentCandidate,protectedEquipped,canMoveStoredItem,guardedStorageAction,itemSortPlans,sortItemsAction,workshopCapacity};',context);
  return {item,inventory,storage,equipment,im,mutations,popup,clock,...context.subject};
 }
 
@@ -82,8 +82,8 @@ test('socketed nontrade items transfer with sockets intact and remain protected 
   assert.equal(f.approvedMaterials(f.im,[p.uid]),null);
  }
 });
-test('storage transfer refuses locked, in-use, equipped, registered, unconfirmed or unknown items',()=>{
- for(const state of ['locked','inUse','equipped','registered','unconfirmed','unknown'])for(const kind of ['deposit','withdraw']){
+test('storage transfer refuses active native reservations and equipped items',()=>{
+ for(const state of ['inUse','equipped','registered'])for(const kind of ['deposit','withdraw']){
   const f=fixture(),p=f.item('blocked',true);
   if(state==='unconfirmed')p.confirmed=false;else if(state==='unknown')delete p.config.Tradable;else p[state]=true;
   (kind==='deposit'?f.inventory:f.storage).items=[p];
@@ -110,7 +110,7 @@ test('full containers exchange a protected idle item for a recipe material and c
  assert.equal(f.inventory.items[0],p);assert.equal(f.storage.items[2],spare);assert.equal(f.approvedMaterials(f.im,[spare.uid]),null);
 });
 test('a changed swap item and user drag state reject storage before mutation',()=>{
- for(const mutate of [f=>{f.inventory.items[0].locked=true;},f=>{f.inventory.items=[];},f=>{f.im.get_Input=()=>({get_IsHolding:()=>true});}]){
+ for(const mutate of [f=>{f.inventory.items[0].registered=true;},f=>{f.inventory.items=[];},f=>{f.im.get_Input=()=>({get_IsHolding:()=>true});}]){
   const f=fixture();f.inventory.items=[f.item('spare',true)];f.storage.items=[f.item('recipe')];mutate(f);
   assert.notEqual(f.guardedStorageAction({kind:'withdraw',uid:'recipe',swapUid:'spare'},[]).status,'confirmed');assert.deepEqual(f.mutations,[]);
  }
@@ -190,11 +190,94 @@ test('native stack merging conserves quantities while equipment UIDs remain stab
  const plan=f.itemSortPlans(f.im).find(p=>p.place==='storage'&&p.tab===1),result=f.sortItemsAction(plan);
  assert.equal(result.status,'confirmed');assert.equal(result.mergedStacks,1);assert.equal(result.protectedChanged.length,0);
 });
-test('sorting does not merge protected stack UIDs or accept an extra unaccounted item',()=>{
+test('sorting merges tradable stacks without trade loss but reports extra unaccounted items locally',()=>{
  const f=sortingFixture();const a=f.item('trade-stack-a',true),b=f.item('trade-stack-b',true);a.maxCount=b.maxCount=99;
  f.storage.items[52]=a;f.storage.items[54]=b;
  const plan=f.itemSortPlans(f.im).find(p=>p.place==='storage'&&p.tab===1);
- assert.equal(f.sortItemsAction(plan).reason,'sort_protected_stack');assert.equal(f.mutations.length,0);
+ f.storage.SortTab=()=>{a.count=2;f.storage.items[54]=null;};
+ const result=f.sortItemsAction(plan);assert.equal(result.status,'confirmed');assert.equal(result.tradeChanged.length,0);assert.equal(result.mergedStacks,1);
  const g=sortingFixture();g.storage.SortTab=()=>{g.storage.items[8]=g.item('unexpected');};
  assert.equal(g.sortItemsAction(g.itemSortPlans(g.im).find(p=>p.place==='storage'&&p.tab===0)).reason,'sort_conservation_failed');
+});
+
+test('locked idle gear moves losslessly in both directions but never becomes material',()=>{
+ const f=fixture(),p=f.item('locked');p.locked=true;p.sockets=[socket()];f.inventory.items=[p];
+ for(const kind of ['deposit','withdraw']){
+  assert.equal(f.canMoveStoredItem(f.im,p),true);
+  const r=f.guardedStorageAction({kind,uid:p.uid},[]);assert.equal(r.status,'confirmed');assert.equal(r.protectedChanged.length,0);
+  assert.equal(p.locked,true);assert.equal(p.get_Count(),1);assert.equal(p.sockets.length,1);assert.equal(f.approvedMaterials(f.im,[p.uid]),null);
+ }
+});
+for(const kind of ['combine','decompose','forge','refine'])test(kind+' never consumes player locked gear',()=>{
+ const f=fixture(),p=f.item('locked');p.locked=true;f.inventory.items=[p];
+ const action={kind,allowed:[p.uid],uid:'target',id:1,recycleSocketed:true};
+ const r=kind==='forge'?f.forgeAction(action):kind==='refine'?f.refineAction(action):f.cubeAction(action);
+ assert.equal(r.reason,'protected_or_missing_material');assert.deepEqual(f.mutations,[]);
+});
+
+test('target workshop view supplies its own capacity regardless of the last shared cube size',()=>{
+ const fs=require('node:fs'),vm=require('node:vm');const c={api:()=>()=>0,list:x=>x,read:(o,k)=>o[k]};vm.createContext(c);
+ vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nglobalThis.capacity=workshopCapacity;',c);
+ c.sceneObject=n=>({_slots:Array(n.endsWith('CubeDecomposeView')?9:9).fill({})});
+ assert.equal(c.capacity('decompose'),9);assert.equal(c.capacity('combine'),9);
+ c.sceneObject=()=>null;assert.equal(c.capacity('decompose'),null);
+});
+
+test('unconfirmed and unknown-trade items move losslessly but remain protected materials',()=>{
+ for(const state of ['unconfirmed','unknown'])for(const kind of ['deposit','withdraw']){
+  const f=fixture(),p=f.item('movable',true);
+  if(state==='unconfirmed')p.confirmed=false;else delete p.config.Tradable;
+  (kind==='deposit'?f.inventory:f.storage).items=[p];
+  const r=f.guardedStorageAction({kind,uid:p.uid},[]);
+  assert.equal(r.status,'confirmed');assert.equal(r.tradeChanged.length,0);
+  assert.equal(f.approvedMaterials(f.im,[p.uid]),null);
+ }
+});
+test('transfer diagnostics separate trade loss from harmless positions, locks and confirmation flags',()=>{
+ for(const change of ['position','confirmed','locked','quantity_gain','trade_flag','quantity_loss','disappearance']){
+  const f=fixture(),p=f.item('trade',true),other=f.item('other',true);p.count=2;f.inventory.items=[p,other];
+  const native=f.im.TryExchange;f.im.TryExchange=(...args)=>{const ok=native(...args);
+   if(change==='position'){f.inventory.items[3]=other;f.inventory.items[1]=null;}
+   if(change==='confirmed')p.confirmed=false;
+   if(change==='locked')p.locked=true;
+   if(change==='quantity_gain')p.count=3;
+   if(change==='trade_flag')p.config.Tradable=false;
+   if(change==='quantity_loss')p.count=1;
+   if(change==='disappearance')f.storage.items=[];
+   return ok;
+  };
+  const r=f.guardedStorageAction({kind:'deposit',uid:p.uid},[]);
+  assert.equal(r.tradeChanged.length>0,['trade_flag','quantity_loss','disappearance'].includes(change),change);
+ }
+});
+test('sort tolerates server acknowledgements and unrelated layout diagnostics without trade damage',()=>{
+ const f=sortingFixture(),plan=f.itemSortPlans(f.im).find(p=>p.place==='storage'&&p.tab===0);
+ f.storage.SortTab=()=>{const p=f.storage.items[3];p.confirmed=false;f.storage.items[0]=p;f.storage.items[3]=null;};
+ const r=f.sortItemsAction(plan);assert.equal(r.status,'confirmed');assert.equal(r.tradeChanged.length,0);
+});
+test('sorting reports actual trade loss separately from a cross-page move',()=>{
+ for(const change of ['move','trade','loss']){
+  const f=sortingFixture(),plan=f.itemSortPlans(f.im).find(p=>p.place==='storage'&&p.tab===0);
+  f.storage.SortTab=()=>{const p=f.storage.items[3];
+   if(change==='move'){f.storage.items[49]=p;f.storage.items[3]=null;}
+   if(change==='trade')p.config.Tradable=false;
+   if(change==='loss')f.storage.items[3]=null;
+  };
+  const r=f.sortItemsAction(plan);assert.equal(r.reason,'sort_conservation_failed');assert.equal(r.tradeChanged.length>0,change!=='move');
+ }
+});
+
+
+test('equipping socketed or unconfirmed nontrade equipment is not a disappearing item',()=>{
+ for(const state of ['socketed','unconfirmed']){
+  const f=fixture(),p=f.item('new-gear');
+  if(state==='socketed')p.sockets=[socket()];else p.confirmed=false;
+  f.inventory.items=[p];
+  const result=f.guardedItemAction(()=>{
+   f.inventory.items=[null];f.equipment.items=[p];p.equipped=true;
+   return {status:'confirmed'};
+  },[{id:7}],[{uid:p.uid,place:'equipment:7',index:0}]);
+  assert.equal(result.status,'confirmed');assert.equal(result.protectedChanged.length,0);
+  assert.equal(result.tradeChanged.length,0);
+ }
 });

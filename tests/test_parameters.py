@@ -6,23 +6,29 @@ import unittest
 from unittest.mock import patch
 
 from dps_assistant import engine, storage
-from dps_assistant.parameters import PARAMETERS, DEFAULT_STRATEGY, apply_patch, normalize_config
-from dps_assistant.policy import choose, observe_growth, equipment_ready, strength_signature
+from dps_assistant.parameters import PARAMETERS, DEFAULT_STRATEGY, apply_patch, normalize_config, public_parameters
+from dps_assistant.policy import choose, observe_growth, equipment_ready, progression_signature
 
 
 class ParameterTests(unittest.TestCase):
     def test_legacy_config_retains_budget_and_gets_every_editable_default(self):
         old = {'soul_reserve': 123, 'modules': {'box': False}, 'strategy': {'pet_mode': 'keep'}}
         config = normalize_config(old)
-        self.assertEqual(len(PARAMETERS), 46)
-        self.assertEqual(len({(p['scope'], p['key']) for p in PARAMETERS}), 46)
+        self.assertEqual(len(PARAMETERS), 56)
+        self.assertEqual(len({(p['scope'], p['key']) for p in PARAMETERS}), 56)
         for spec in PARAMETERS:
             values = config if spec['scope'] == 'root' else config['strategy']
             self.assertIn(spec['key'], values)
         self.assertEqual(config['soul_reserve'], 123)
         self.assertEqual(config['strategy']['pet_mode'], 'keep')
+        self.assertNotIn('tower_farm_wait_seconds', config['strategy'])
         self.assertFalse(config['modules']['box'])
         self.assertNotIn('interval', old)
+        migrated = normalize_config({'strategy': {'farm_candidate_count': 5, 'farm_level_offset': 1}})
+        self.assertEqual(migrated['strategy']['farm_candidate_count'], 10)
+        kept = normalize_config({'_strategy_schema_version': 1,
+                                 'strategy': {'farm_candidate_count': 5, 'farm_level_offset': 1}})
+        self.assertEqual(kept['strategy']['farm_candidate_count'], 5)
 
     def test_partial_patch_merges_and_rejects_invalid_values_without_partial_changes(self):
         config = copy.deepcopy(engine.DEFAULT)
@@ -32,7 +38,7 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(config, engine.DEFAULT)
         invalid = [
             {'interval': True}, {'interval': float('nan')}, {'interval': float('inf')},
-            {'strategy': {'recycle_batch': 1.5}}, {'strategy': {'farm_level_offset': 0}},
+            {'strategy': {'recycle_batch': 1.5}}, {'strategy': {'farm_level_offset': -1}},
             {'strategy': {'unknown': 1}}, {'strategy': {'pet_mode': 'unknown'}},
             {'strategy': {'recommended_actives': 1}}, {'strategy': []}, {'unknown': 1},
         ]
@@ -60,9 +66,12 @@ class ParameterTests(unittest.TestCase):
 
     def test_tower_growth_requirement_and_retry_are_independent(self):
         config = copy.deepcopy(engine.DEFAULT)
-        snap = {'loaded': True, 'record': {'maxStage': 20}, 'characters': [], 'currencies': {}}
+        config['modules']['tower']=True
+        snap = {'loaded': True, 'record': {'maxStage': 20, 'maxCleared': 20},
+                'stage': {'category': 0, 'level': 20, 'running': False, 'ending': True},
+                'catalogue': {'normalMax': 20}, 'characters': [], 'currencies': {}}
         scan = {'snapshot': snap, 'actions': [{'kind': 'tower', 'key': 'tower:5', 'level': 5, 'priority': 90}]}
-        state = {'tower_attempt': {'level': 5, 'max_stage': 20, 'strength': strength_signature(snap), 'at': 100}}
+        state = {'tower_attempt': {'level': 5, 'max_stage': 20, 'progress_strength': progression_signature(snap), 'at': 100}}
         self.assertIsNone(choose(scan, config, state, now=400))
         config['strategy'].update(tower_require_growth=False, tower_retry_seconds=60)
         self.assertIsNone(choose(scan, config, state, now=159))
@@ -87,7 +96,7 @@ class ParameterTests(unittest.TestCase):
                 first = engine.Engine(start=False)
                 second = None
                 try:
-                    first.update({'interval': 3.5, 'strategy': {'pet_mode': 'keep', 'recycle_batch': 4, 'preserve_open_panels': False}})
+                    first.update({'interval': 3.5, 'strategy': {'pet_mode': 'keep', 'recycle_batch': 4, 'preserve_open_panels': False, 'farm_retry_finish_seconds': 45}})
                     disk = (folder/'config.json').read_bytes()
                     with self.assertRaises(ValueError):
                         first.update({'interval': 4, 'strategy': {'recycle_batch': 0}})
@@ -100,7 +109,8 @@ class ParameterTests(unittest.TestCase):
                     second = engine.Engine(start=False)
                     self.assertEqual(second.config, json.loads(disk))
                     self.assertEqual(second.config['strategy']['pet_mode'], 'keep')
-                    self.assertEqual(len(second.public_state()['parameters']['fields']), 46)
+                    self.assertEqual(second.config['strategy']['farm_retry_finish_seconds'], 45)
+                    self.assertEqual(len(second.public_state()['parameters']['fields']), 56)
                 finally:
                     first.stop()
                     if second:
@@ -108,9 +118,12 @@ class ParameterTests(unittest.TestCase):
 
 class ManualPanelParameterTests(unittest.TestCase):
     def test_legacy_default_and_explicit_user_choice(self):
-        self.assertTrue(normalize_config({})['strategy']['preserve_open_panels'])
-        config = apply_patch(normalize_config({}), {'strategy': {'preserve_open_panels': False}})
+        self.assertFalse(normalize_config({})['strategy']['preserve_open_panels'])
+        config = apply_patch(normalize_config({}), {'strategy': {'preserve_open_panels': True}})
         restored = normalize_config(json.loads(json.dumps(config)))
-        self.assertFalse(restored['strategy']['preserve_open_panels'])
+        self.assertTrue(restored['strategy']['preserve_open_panels'])
+        self.assertFalse(normalize_config({'strategy':{'preserve_open_panels':True}})['strategy']['preserve_open_panels'])
+        spec=next(p for p in public_parameters()['fields'] if p['key']=='preserve_open_panels')
+        self.assertTrue(spec['inverted']);self.assertFalse(spec['default'])
         with self.assertRaises(ValueError):
             apply_patch(config, {'strategy': {'preserve_open_panels': 'false'}})
