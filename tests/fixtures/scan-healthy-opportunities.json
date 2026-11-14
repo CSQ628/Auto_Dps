@@ -1,0 +1,115 @@
+{
+  "snapshot": {
+    "account": "test",
+    "loaded": true,
+    "squad": [],
+    "characters": [],
+    "inventory": {
+      "count": 0,
+      "capacity": 20
+    },
+    "stage": {
+      "level": 1,
+      "category": 0,
+      "running": true
+    },
+    "record": {
+      "maxCleared": 0
+    },
+    "currencies": {
+      "soul": 1000
+    },
+    "combat": {
+      "available": false
+    },
+    "battleReadiness": {
+      "known": false
+    },
+    "roster": {},
+    "catalogue": {
+      "characterMax": 101
+    },
+    "storage": {
+      "pressure": false
+    },
+    "equipmentPlanning": [],
+    "forging": {
+      "ready": true
+    },
+    "runes": {
+      "available": 0,
+      "availableOnline": 0,
+      "planning": {
+        "policy": "online_then_offline_fallback",
+        "onlineWaiting": null,
+        "next": null,
+        "candidates": 0,
+        "waiting": null
+      }
+    },
+    "pets": {
+      "unlocked": 0,
+      "equipped": "",
+      "ownedEffects": [],
+      "effectsPolicy": "all_owned"
+    },
+    "achievements": {
+      "cleared": 0,
+      "total": 0
+    },
+    "equipmentContext": {},
+    "manualBlockedKinds": [],
+    "automationBlocked": [],
+    "experienceBlocked": false,
+    "progression": {},
+    "connection": {
+      "online": true,
+      "loggedIn": true,
+      "trustBlocked": false
+    },
+    "sync": {
+      "busy": false,
+      "queue": 0,
+      "blocked": false,
+      "nextFlushSeconds": 0,
+      "backlogged": false
+    }
+  },
+  "runtime": {
+    "ready": true,
+    "maintenance": {
+      "active": false
+    }
+  },
+  "actions": [
+    {
+      "kind": "combine",
+      "key": "combine:1",
+      "label": "combine",
+      "priority": 108
+    },
+    {
+      "kind": "progress",
+      "key": "push:2",
+      "label": "push",
+      "priority": 108,
+      "mode": "push",
+      "level": 2
+    },
+    {
+      "kind": "unlock",
+      "key": "character:1",
+      "label": "解锁角色 1",
+      "priority": 100,
+      "id": 1
+    },
+    {
+      "kind": "box",
+      "key": "box:0",
+      "label": "box",
+      "priority": 90,
+      "grade": 0
+    }
+  ],
+  "issues": []
+}

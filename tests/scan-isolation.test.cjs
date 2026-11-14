@@ -48,14 +48,8 @@ test('unknown native panel status remains a submission barrier',()=>{
 });
 test('healthy scan preserves previous opportunities and adds the storage recovery barrier',()=>{
  const scan=fixture().scan();assert.equal(scan.snapshot.planningUnavailable,undefined);
- if(process.env.SCAN_SOURCE_ROOT)return;
- const oldRoot='output/backups/2026-11-14-scan-isolation';
- const old=process.env.SCAN_SOURCE_ROOT;process.env.SCAN_SOURCE_ROOT=oldRoot;
- // The fixture accepts a source root through the separate comparison process below.
- const cp=require('node:child_process');
- const script=`let source=require('fs').readFileSync('tests/scan-isolation.test.cjs','utf8').split("for(const [fault,section]")[0];process.stdout.write(JSON.stringify(new Function('require',source+';return fixture().scan();')(require)));`;
- const previous=JSON.parse(cp.execFileSync(process.execPath,['-e',script],{encoding:'utf8'}));
- if(old===undefined)delete process.env.SCAN_SOURCE_ROOT;else process.env.SCAN_SOURCE_ROOT=old;
+ // Frozen healthy result from the preceding planner; no local backup checkout is required.
+ const previous=JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/scan-healthy-opportunities.json'),'utf8'));
  assert.equal(scan.storageRecoveryBarrier,1);
  const {storageRecoveryBarrier,...current}=JSON.parse(JSON.stringify(scan));
  assert.deepEqual(current,previous);
