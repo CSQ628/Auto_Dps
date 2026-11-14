@@ -53,7 +53,7 @@ test('soul and stone reserves are independent and unavailable expensive goals do
 test('zero-cost foundation nodes and pressured capacity outrank optional growth; completed party reduces XP priority',()=>{
  let p=runes([rune(1,'SquadSlot',{max:1,prices:[0]}),rune(2,'KillExpGain')],{squadCount:1});assert.equal(p[0].id,1);
  p=runes([rune(1,'InventorySlot'),rune(2,'KillExpGain')],{inventoryPressure:true});assert.equal(p[0].id,1);
- p=runes([rune(1,'KillExpGain'),rune(2,'BaseAttackPoint')],{characters:[{level:101}]});assert.equal(p[0].id,2);
+ p=runes([rune(1,'KillExpGain'),rune(2,'BaseAttackPoint')],{characters:[{level:101}],squadCount:1});assert.equal(p[0].id,2);
 });
 test('same-category rune marginal value accounts for current level and route cost',()=>{
  const p=runes([rune(1,'KillExpGain',{values:[1,1.1,1.2,1.3,1.4],level:1,prices:[100000]}),rune(2,'KillExpGain',{prices:[100]})]);assert.equal(p[0].id,2);

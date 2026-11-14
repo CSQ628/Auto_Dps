@@ -281,3 +281,16 @@ test('equipping socketed or unconfirmed nontrade equipment is not a disappearing
   assert.equal(result.tradeChanged.length,0);
  }
 });
+
+
+for(const kind of ['deposit','withdraw'])test(kind+' confirms exact observed transfer even if the native return is false',()=>{
+ const f=fixture(),p=f.item('transfer',true);if(kind==='deposit')f.inventory.items=[p];else f.storage.items[1]=p;
+ const native=f.im.TryExchange;f.im.TryExchange=(...args)=>{native(...args);return false;};
+ const r=f.guardedStorageAction({kind,uid:p.uid},[]);assert.equal(r.status,'confirmed');assert.equal(r.protectedChanged.length,0);assert.equal(r.tradeChanged.length,0);
+});
+test('partial warehouse swap stays pending rather than releasing either unknown item',()=>{
+ const f=fixture(),p=f.item('take',true),swap=f.item('keep',true);f.storage.items[1]=p;f.inventory.items=[swap];
+ f.im.TryExchange=(from,i,to,j)=>{to.items[j]=from.items[i];from.items[i]=null;return false;};
+ const r=f.guardedStorageAction({kind:'withdraw',uid:p.uid,swapUid:swap.uid},[]);
+ assert.equal(r.status,'pending');assert.equal(r.reason,'storage_result_unconfirmed');assert.ok(r.protectedChanged.length);assert.ok(r.tradeChanged.length);
+});

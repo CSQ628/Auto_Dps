@@ -28,14 +28,15 @@ function fixture(tamper=()=>{}){
  const item=(uid,id)=>({isNull:()=>false,uid,sockets:[],get_Uid:()=>uid,get_ConfigID:()=>id,get_Config:()=>({Tradable:false,Grade:1,Tier:1}),
   get_IsLocked(){return !!this.locked;},get_IsServerConfirmed:()=>true,get_Count(){return this.count||1;},get_Kind:()=>1,get_Sockets(){return this.sockets;},get_AttachmentConfig:()=>({ItemType:1}),get_EquipmentConfig:()=>({})});
  const gear=item('gear',1),material=item('gem',10),other=item('other',2);gear.sockets=[socket(0)];other.sockets=[socket(0)];
- const inventory={get_Has:()=>[material,other]},equipment={get_Has:()=>[gear]},cube={items:[],get_Has(){return this.items;},get_IsEmpty(){return !this.items.length;}};
+ material.count=1;material.get_Kind=()=>16;
+ const inventory={get_Has:()=>material.count?[material,other]:[null,other]},equipment={get_Has:()=>[gear]},cube={items:[],get_Has(){return this.items;},get_IsEmpty(){return !this.items.length;}};
  const toggle={get_isOn:()=>true,set_isOn:()=>{}};
- const view={get_IncludeStorageToggle:()=>toggle,CollectSlots(){},SetMode(){},RebuildRules(){},ReleaseAll(){cube.items=[];},TryExecute(){gear.sockets.push(socket(1));tamper({gear,other,socket});return true;}};
+ const view={get_IncludeStorageToggle:()=>toggle,CollectSlots(){},SetMode(){},RebuildRules(){},ReleaseAll(){cube.items=[];},TryExecute(){material.count--;gear.sockets.push(socket(1));tamper({gear,other,socket});return true;}};
  const popup={OnClickClose(){}};
  const im={get_Inventory:()=>inventory,get_Storage:()=>({get_Has:()=>[],get_SlotCountPerTab:()=>49}),GetEquipment:()=>equipment,get_Cube:()=>cube,get_Input:()=>({get_IsHolding:()=>false}),
   IsInUse:()=>false,IsEquipped:()=>false,FindRegistrations:()=>[],CanAttach:()=>true,GetSocketCount:()=>4,TryMoveToCube:p=>{cube.items.push(p);return true;}};
  const c={api:()=>()=>0,list:x=>x,read:(o,n)=>o[n],single:()=>im,ref:x=>x,view,popup,call:(o,n,a=[])=>{if(typeof o[n]!=='function')throw Error(n);return o[n](...a);}};
- vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nsceneObject=()=>view;activateCubeView=()=>popup;globalThis.run=()=>guardedItemAction(()=>refineAction({id:1,uid:"gear",allowed:["gem"]}),[{id:1}],[],["gear"],[],"gear");',c);
+ c.gearFixture=gear;vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nsceneObject=()=>view;activateCubeView=()=>popup;globalThis.run=()=>guardedItemAction(()=>refineAction({id:1,uid:"gear",slot:0,itemRevision:equipmentRevision(gearFixture),allowed:["gem"],materialCounts:{gem:1},batchSize:1}),[{id:1}],[],["gear"],[],"gear");',c);
  return {run:c.run,gear};
 }
 

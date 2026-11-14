@@ -1,0 +1,12 @@
+﻿claim,equipment_levels,max_grade,checked_grade,matches_current_tables
+痛苦3-1～4-8（3-10除外）,[40],7,True,True
+痛苦3-10,[40],8,True,True
+痛苦4-10,"[40, 50]",9,True,True
+噩梦1-1～3-7（装备等级）,[50],9,False,True
+噩梦1-10、2-10,[50],9,True,True
+噩梦3-8、3-9,"[50, 65]",7,True,True
+噩梦3-10,"[50, 65]",9,True,True
+噩梦4-1～4-8,[65],7,True,True
+噩梦4-9,"[65, 80]",7,True,True
+噩梦4-10,"[65, 80]",9,True,True
+地狱（整体范围）,[80],9,True,True

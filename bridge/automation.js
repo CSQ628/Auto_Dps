@@ -72,10 +72,15 @@ function opportunityScanFresh(input={}){
  }catch(error){runtime.ready=false;}
  if(!runtime.ready)return {snapshot:null,runtime,actions:[],issues:['等待游戏登录与存档加载']};
  const s=snapshot();s.squad=list(s.squad);s.combat=combatSnapshot(s);
- const dm=single(names.data),im=single(names.items),cm=single(names.chars),pm=single(names.pets),rp=refreshRunesProvider(),drop=single(names.drop);
+ const dm=single(names.data),im=single(names.items);
+ let rp,runeProviderError;try{rp=refreshRunesProvider();}catch(error){runeProviderError=error;}
  s.battleReadiness=battleReadiness(s);
+ s.entryState=stageEntryState(s);
  if(s.battleReadiness.known&&!s.battleReadiness.charactersInitialized)return jsonSafe({snapshot:s,runtime,actions:[],issues:['等待原生角色与存档初始化，暂缓成长操作']});
- const actions=[],issues=[];const add=(kind,key,label,priority,detail={})=>actions.push({kind,key,label,priority,...detail});
+ const actions=[],issues=[];const add=(kind,key,label,priority,detail={})=>{const a={kind,key,label,priority,...detail};if(detailedActionAllowed(a,options))actions.push(a);};
+ const section=(name,fn,dependencies=[])=>collectOpportunitySection(s,add,issues,name,fn,dependencies);
+ section('characters',(s,add,issues)=>{
+ const cm=single(names.chars);
  const roster=list(call(cm,'GetAllCharacters'));
  for(const t of roster){const id=read(t,'ID');if(call(cm,'CanUnlock',[id],'System.Int32'))add('unlock','character:'+id,'解锁角色 '+id,100,{id});}
  s.roster=contentGoal(roster.map(p=>growthContentRow(cm,p,'Character','System.Int32')));
@@ -90,7 +95,8 @@ function opportunityScanFresh(input={}){
    const activeSlots=list(call(dm,'GetEquippedActives',[c.id])),equippedActives=new Set(activeSlots.filter(Boolean));
    const activeConfigs=list(call(dm,'GetActiveSkills',[c.id]));
    const activeRows=activeConfigs.map(p=>({uid:read(p,'UniqueID'),type:activeTypeNames[read(p,'Type')]||'Unknown',trigger:skillTriggerNames[read(p,'TriggerType')]||'Unknown',triggerValue:read(p,'TriggerValue'),cooldown:read(p,'Cooldown'),cooldownIncrement:read(p,'LevelUpCooldown'),max:read(p,'MaxLevel'),increments:list(read(p,'LevelUpFactor')),subIncrements:list(read(p,'LevelUpSubFactor')),canLearn:stat(names.active,'CanLearn',[c.id,ref(p)]),canRefund:stat(names.active,'CanRefund',[c.id,ref(p)]),unlock:read(p,'UnlockLevel'),learned:call(dm,'GetActiveLearnedLevel',[c.id,read(p,'UniqueID')])}));
-   const build=planActives(activeRows,activeSlots,c.level,c.points,options.recommended_actives&&options.modules.active!==false);
+   const learnableRows=options.active_learn?activeRows:activeRows.filter(r=>r.learned>0);
+   const build=options.active_equip?planActives(learnableRows,activeSlots,c.level,c.points,options.recommended_actives&&options.modules.active!==false):{desired:activeSlots.filter(Boolean),missing:[],refund:[],swaps:[],unequip:null};
    c.activeLoadout=[...equippedActives];c.activePlanning={desired:build.desired,missing:build.missing,triggers:build.desired.map(uid=>{const row=activeRows.find(r=>r.uid===uid);return {skill:uid,type:row.type,trigger:row.trigger,value:row.triggerValue};})};c.skills=[];
    if(build.unequip&&options.allow_active_refund){const old=activeConfigs.find(p=>read(p,'UniqueID')===build.unequip.uid);
     if(old&&stat(names.active,'CanRefund',[c.id,ref(old)]))add('skill_unequip','skill_unequip:'+c.id+':'+build.unequip.slot+':'+build.unequip.uid,'为新解锁技能释放可回收的旧技能槽',98,{id:c.id,slot:build.unequip.slot,skill:build.unequip.uid,target:build.unequip.target});
@@ -122,16 +128,21 @@ function opportunityScanFresh(input={}){
      }
    }
  }
- boxOpportunities(s,drop,add);
- inventoryOpportunities(s,dm,im,add,issues,options);
- if(options.auto_sort_items)for(const plan of itemSortPlans(im,options.modules.storage,options.sort_cooldown_seconds))add('sort',plan.key,'物品处理完成，使用系统排序整理'+(plan.place==='inventory'?'背包':'仓库第 '+(plan.tab+1)+' 页'),20,plan);
+ });
+ section('boxes',(s,add)=>boxOpportunities(s,single(names.drop),add,options));
+ section('workshop',(s,add,issues)=>inventoryOpportunities(s,dm,im,add,issues,options),['characters']);
+ section('sorting',(s,add)=>{
+ if(options.auto_sort_items)for(const plan of itemSortPlans(im,options.modules.storage,options.sort_cooldown_seconds))if(options[plan.place==='inventory'?'sort_inventory':'sort_storage'])add('sort',plan.key,'物品处理完成，使用系统排序整理'+(plan.place==='inventory'?'背包':'仓库第 '+(plan.tab+1)+' 页'),20,plan);
+ });
+ section('runes',(s,add)=>{
+ if(runeProviderError)throw runeProviderError;
  const allRunes=list(call(dm,'GetAllRunes'));
  const runeRows=runePointRows(allRunes,rp);
  const party=s.characters.filter(c=>s.squad.includes(c.id)),selected=party.flatMap(c=>c.activePlanning?.triggers||[]);
- const runeContext={mode:options.rune_priority,characters:party,characterMax:s.catalogue.characterMax,squadCount:s.squad.filter(id=>id>0).length,
-  inventoryPressure:s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100,storagePressure:s.storage.pressure,
+ const runeContext={mode:options.rune_priority,characters:party,characterMax:s.catalogue?.characterMax,squadCount:s.squad.filter(id=>id>0).length,
+  inventoryPressure:s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100,storagePressure:s.storage?.pressure===true,
   hasCooldown:party.some(c=>list(call(dm,'GetActiveSkills',[c.id])).some(p=>c.activePlanning?.desired.includes(read(p,'UniqueID'))&&read(p,'Cooldown')>0)),
-  hasShield:selected.some(r=>/Shield/.test(r.type)),soul:s.currencies.soul,premium:s.currencies.premium,budget:options.budget};
+  hasShield:selected.some(r=>/Shield/.test(r.type)),soul:s.currencies.soul,premium:s.currencies.premium,budget:options.budget,controls:options};
  const runePlan=planRuneInvestment(runeRows,runeContext),runeRanks=new Map(runePlan.map((p,i)=>[p.id,{...p,priority:p.offlineFallback?1:94-Math.min(40,i)*.1}]));
  s.runes={...runeProgress(runeRows),available:runeRows.filter(r=>r.canLearn).length,availableOnline:runeRows.filter(r=>!isOfflineRuneHeader(r.header)&&r.canLearn).length,
   planning:{mode:options.rune_priority,policy:'online_then_offline_fallback',onlineWaiting:runeWaiting(runeRows,runeContext,true),next:runePlan[0]||null,candidates:runePlan.length,waiting:runePlan.length?null:runeWaiting(runeRows,runeContext)}};
@@ -139,8 +150,11 @@ function opportunityScanFresh(input={}){
   const planned=runeRanks.get(r.id);if(!planned)continue;
   const cost={goods:r.goods[Math.min(r.level,r.goods.length-1)],amount:r.prices[Math.min(r.level,r.prices.length-1)]};
   add('rune','rune:'+r.id+':'+r.level,'刻印成长 · '+r.header,planned.priority,
-   {id:r.id,level:r.level,max:r.max,header:r.header,cost,permanent:true,planningReason:planned.reason,targetRune:planned.target,offlineFallback:planned.offlineFallback});
+   {id:r.id,level:r.level,max:r.max,header:r.header,cost,permanent:true,planningReason:planned.reason,targetRune:planned.target,offlineFallback:planned.offlineFallback,runeGroup:runeGroup(r.header)});
  }
+ },['characters']);
+ section('pets',(s,add)=>{
+ const pm=single(names.pets);
  const allPets=list(call(pm,'GetAllPets'));
  for(const p of allPets){const id=read(p,'ID');if(call(pm,'CanUnlock',[id],'System.String'))add('pet_unlock','pet:'+id,'解锁宠物 '+id,91,{id});}
  const unlockedPets=list(call(pm,'get_UnlockedPets')),currentPet=call(pm,'get_EquippedPetID');
@@ -148,15 +162,22 @@ function opportunityScanFresh(input={}){
  const preferred=planPetFollower(ownedEffects,currentPet,options.pet_mode);
  if(preferred&&preferred!==currentPet)add('pet_equip','pet_equip:'+preferred,'选择已解锁的跟随宠物（全部拥有加成已生效）',70,{id:preferred});
  s.pets={...contentGoal(allPets.map(p=>growthContentRow(pm,p,'Pet','System.String'))),unlocked:call(pm,'get_UnlockedCount'),equipped:currentPet,ownedEffects,effectsPolicy:'all_owned'};
+ });
+ section('achievements',s=>{
  s.achievements={cleared:call(single('DG.Manager.AchievementManager'),'get_ClearedCount'),total:list(call(dm,'get_AchievementConfigs')).length};
- s.characters=s.characters.map(c=>({...c,equipment:equipped(im,c.id),equipmentPlanning:s.equipmentPlanning.find(p=>p.id===c.id)}));
+ });
+ section('equipment',s=>{
+ s.characters=s.characters.map(c=>({...c,equipment:equipped(im,c.id),equipmentPlanning:s.equipmentPlanning?.find(p=>p.id===c.id)}));
  s.equipmentContext=equipmentContext(s);
+ });
  const squadOrder=new Map(s.squad.map((id,index)=>[id,index]));
  s.characters.sort((a,b)=>(squadOrder.get(a.id)??s.squad.length)-(squadOrder.get(b.id)??s.squad.length)||a.id-b.id);
- auxiliaryOpportunities(s,dm,im,add,issues,options);
- progressionOpportunities(s,dm,im,add,issues,options);
- for(const action of battleRecoveryPlans(s))add(action.kind,action.key,action.label,action.priority,action);
- if(s.inventory.count>=s.inventory.capacity)issues.push('背包已满：优先合成、扩容与回收后继续开箱');
+ if(!section('auxiliary',(s,add,issues)=>auxiliaryOpportunities(s,dm,im,add,issues,options))){
+  s.automationBlocked=['native_panel_state_unavailable'];s.experienceBlocked=true;s.manualBlockedKinds=[];
+ }
+ section('progression',(s,add,issues)=>progressionOpportunities(s,dm,im,add,issues,options));
+ section('recovery',(s,add)=>{for(const action of battleRecoveryPlans(s,options))add(action.kind,action.key,action.label,action.priority,action);});
+ if(s.inventory.count>=s.inventory.capacity&&!issues.some(message=>/^背包(?:与仓库)?已满/.test(message)))issues.push('背包已满（'+s.inventory.count+'/'+s.inventory.capacity+'格）：正在重试读取整理条件，其他成长继续');
  const server=single('DG.Network.ServerManager'),reach=read(server,'_reachability');
  s.connection={online:reach&&!reach.isNull()?call(reach,'get_IsOnline'):false,loggedIn:call(server,'get_IsLoggedIn'),trustBlocked:call(server,'get_IsTrustBlocked')};
  if(!s.connection.online)issues.push('游戏原生网络探测为离线：免费练级继续，成长消费等待连接恢复');
@@ -164,7 +185,7 @@ function opportunityScanFresh(input={}){
  s.sync.backlogged=s.sync.queue>100;
  if(s.sync.backlogged)issues.push('原生同步积压 '+s.sync.queue+' 条：成长消费等待同步，免费练级与入场保护继续');
  if(s.sync.blocked)issues.push('原生同步当前阻止奖励结算，等待游戏恢复');
- return jsonSafe({snapshot:s,runtime,actions:actions.filter(a=>!s.manualBlockedKinds.includes(a.kind)).sort((a,b)=>b.priority-a.priority),issues});
+ return jsonSafe({snapshot:s,runtime,storageRecoveryBarrier:1,actions:actions.filter(a=>!(s.manualBlockedKinds||[]).includes(a.kind)&&planningActionAllowed(s,a)).sort((a,b)=>b.priority-a.priority),issues});
 }
 function executeAction(cmd){
  if(cmd.kind==='maintenance_exit'){
@@ -241,14 +262,14 @@ function executeAction(cmd){
  case 'deposit':case 'withdraw':return {...guardedStorageAction(action,scan.snapshot.characters),action};
  case 'sort':return {...sortItemsAction(action,scan.snapshot.characters),action};
  case 'forge':return {...guardedItemAction(()=>forgeAction(action),scan.snapshot.characters),action};
- case 'refine':return {...guardedItemAction(()=>refineAction(action),scan.snapshot.characters,[],[action.uid],[],action.uid),action};
+ case 'refine':return {...guardedItemAction(()=>refineAction(action),scan.snapshot.characters,[],[action.uid],[],action.uid,action.allowTradableTarget),action};
  case 'combine':return {...guardedItemAction(()=>cubeAction(action),scan.snapshot.characters),action};
  case 'decompose':return {...guardedRecycleAction(action,scan.snapshot.characters),action};
  case 'unlock':ok=call(single(names.chars),'TryUnlock',[action.id]);after=call(single(names.chars),'IsUnlocked',[action.id],'System.Int32');break;
  case 'formation':ok=stat(names.squad,'TryArrange',[action.id]);after=stat(names.squad,'IsArranged',[action.id]);break;
  case 'battle_recover':{
   const gm=single(names.game);
-  if(!battleRecoveryPlans(scan.snapshot).some(a=>a.key===action.key))return {status:'stale',reason:'battle_readiness_changed'};
+  if(!battleRecoveryPlans(scan.snapshot,options).some(a=>a.key===action.key))return {status:'stale',reason:'battle_readiness_changed'};
   if(action.mode==='sync')call(gm,'OnSquadChanged');
   else {
    if(call(gm,'GetRequireItemID',[action.category,action.level])>0||!call(gm,'CanEnterStage',[action.category,action.level]))return {status:'waiting',reason:'recovery_entry_not_free'};
@@ -391,7 +412,10 @@ function restoreBoxReceipts(rows){
   if(!row||typeof row.requestId!=='string'||!row.requestId.length||row.requestId.length>120||
      typeof row.account!=='string'||!row.account.length||row.account.length>256||
      !Number.isSafeInteger(row.openedCount)||row.openedCount<0||row.openedCount>8||
-     !['confirmed','pending','waiting','rejected'].includes(row.status)||
+     !['confirmed','pending','waiting','rejected','unresolved'].includes(row.status)||
+     row.status==='unresolved'&&(row.sealed?.schema!==1||row.sealed?.source!=='native_main_thread_fence'||
+      !Number.isSafeInteger(row.sealed.record)||row.sealed.record<0||!Array.isArray(row.sealed.counts)||row.sealed.counts.length!==3||
+      row.sealed.counts.some(n=>!Number.isSafeInteger(n)||n<0))||
      row.status==='pending'&&(!Number.isSafeInteger(row.pendingRecord)||row.pendingRecord<0))throw Error('invalid_box_receipt');
  }
  for(const row of rows){if(boxReceipts.has(row.requestId))continue;
@@ -410,7 +434,7 @@ function boxScanFresh(input={}){
  if(!runtime.ready)return {snapshot:null,runtime,actions:[],issues:[],scanMs:Date.now()-started};
  const options=bridgeStrategy(input.strategy),bag=call(im,'get_Inventory');
  const account=stat('DG.Save.InGame.SaveEnvironment','get_Directory').replaceAll('\\','/').split('/').pop();
- const open=openPopups().map(p=>fullname(A.objectClass(p))),policy=popupPolicy(open,options.preserve_open_panels,options.pause_on_manual_panels);
+ const open=openPopups().map(p=>fullname(A.objectClass(p))),policy=popupPolicy(open,options.preserve_open_panels,options.pause_on_manual_panels,options);
  const server=single('DG.Network.ServerManager'),reach=read(server,'_reachability'),sync=single('DG.Network.SyncManager');
  const s={account,loaded:true,inventory:{count:call(bag,'get_OccupiedCount'),capacity:call(bag,'get_Capacity')},
   record:{boxes:call(single(names.record),'get_BoxOpenCount')},automationBlocked:[...policy.blocked],
@@ -420,15 +444,30 @@ function boxScanFresh(input={}){
   connection:{online:!!reach&&!reach.isNull()&&call(reach,'get_IsOnline'),loggedIn:call(server,'get_IsLoggedIn'),trustBlocked:call(server,'get_IsTrustBlocked')},
   sync:{blocked:call(sync,'get_IsGrantBlocked'),queue:call(sync,'get_QueueCount')}};
  s.sync.backlogged=s.sync.queue>100;
- const actions=[];boxOpportunities(s,single(names.drop),(kind,key,label,priority,detail)=>actions.push({kind,key,label,priority,...detail}));
+ const actions=[];boxOpportunities(s,single(names.drop),(kind,key,label,priority,detail)=>actions.push({kind,key,label,priority,...detail}),options);
  const receipt=boxReceipts.get(input.requestId);
  // An accepted single open may finish on a later frame. Observe it; do not call
  // TryOpen again or credit earlier successful members of a partial batch twice.
  if(receipt&&receipt.account===account&&receipt.status==='pending'&&s.record.boxes>receipt.pendingRecord){
   receipt.openedCount++;receipt.status='confirmed';receipt.reason=null;receipt.stopReason='pending_settled';
-  receipt.recordAfter=s.record.boxes;delete receipt.pendingRecord;
+  receipt.recordAfter=s.record.boxes;delete receipt.pendingRecord;checkpointBoxReceipt(receipt);
  }
- return {snapshot:s,runtime,actions,issues:[],receipt:receipt?.account===account?boxReceiptResult(receipt):null,scanMs:Math.max(0,Date.now()-started)};
+ let resolved=receipt,prefixReceipt=null;
+ // This callback runs on the same native main thread as TryOpen. Earlier calls
+ // have returned. Sealing the request ID also prevents any late queued callback
+ // from calling TryOpen. The outcome stays unknown; only a NEW current queue
+ // operation can follow. Neither time nor record growth fabricates success.
+ if(input.sealPending===true&&input.account===account&&typeof input.requestId==='string'&&input.requestId.length>0&&input.requestId.length<=120&&
+    (!resolved||resolved.account===account&&resolved.status==='pending')&&Number.isSafeInteger(s.record.boxes)&&s.record.boxes>=0&&
+    s.boxes.counts.every(n=>Number.isSafeInteger(n)&&n>=0)&&[...boxReceipts.values()].filter(r=>r.status==='unresolved'||r.status==='pending').length<224){
+  if(resolved)prefixReceipt=boxReceiptResult(resolved);
+  resolved={...(resolved||{requestId:input.requestId,account,openedCount:0,observations:[]}),status:'unresolved',reason:'box_request_sealed',
+   sealed:{schema:1,source:'native_main_thread_fence',record:s.record.boxes,counts:s.boxes.counts.slice()}};
+  boxReceipts.set(input.requestId,resolved);checkpointBoxReceipt(resolved);
+ }
+ const pendingReceipt=[...boxReceipts.values()].find(r=>r.account===account&&r.status==='pending');
+ return {snapshot:s,runtime,actions,issues:[],boxRecoveryBarrier:1,receipt:resolved?.account===account?boxReceiptResult(resolved):null,prefixReceipt,
+  pendingReceipt:pendingReceipt?boxReceiptResult(pendingReceipt):null,scanMs:Math.max(0,Date.now()-started)};
 }
 function boxScanGuard(scan,account){
  if(scan.runtime.maintenance.active)return 'native_maintenance_active';
@@ -439,6 +478,8 @@ function boxScanGuard(scan,account){
  if(s.trading)return 'trade_panel_active';
  if(s.manualBlockedKinds.includes('box'))return 'manual_panel_conflict';
  if(s.connection.online!==true||s.connection.loggedIn!==true||s.connection.trustBlocked)return 'native_offline';
+ if(s.boxes.relief?.active&&!s.boxes.relief.blocked)return 'inventory_relief';
+ if(s.boxes.freeSlots>0&&s.boxes.openableSlots<=0)return 'inventory_reserved_slots';
  if(s.sync.blocked)return 'native_sync_blocked';
  if(s.sync.backlogged)return 'native_sync_backlog';
  if(!Number.isSafeInteger(s.inventory.capacity)||!Number.isSafeInteger(s.inventory.count)||s.inventory.count<0||s.inventory.capacity<=s.inventory.count)return 'inventory_full';
@@ -455,18 +496,20 @@ function openBoxBatch(cmd){
  const receipt={requestId:cmd.requestId,account:cmd.account,status:'waiting',reason,openedCount:0,recordBefore:scan.snapshot?.record.boxes,recordAfter:scan.snapshot?.record.boxes,observations:[]};
  boxReceipts.set(cmd.requestId,receipt);
  // Finished receipts are only a transport recovery cache, not an endless log.
- if(boxReceipts.size>32)for(const [key,value] of boxReceipts){if(key!==cmd.requestId&&value.status!=='pending'){boxReceipts.delete(key);restoredBoxRequests.delete(key);break;}}
- const started=Date.now(),drop=single(names.drop),record=single(names.record),freeBefore=scan.snapshot?scan.snapshot.boxes.freeSlots:0;
- for(let index=0;!reason&&index<8;index++){
-  if(index>=freeBefore){reason='inventory_full';break;}
+ if(boxReceipts.size>32)for(const [key,value] of boxReceipts){if(key!==cmd.requestId&&!['pending','unresolved'].includes(value.status)){boxReceipts.delete(key);restoredBoxRequests.delete(key);break;}}
+ const started=Date.now(),drop=single(names.drop),record=single(names.record),freeBefore=scan.snapshot?scan.snapshot.boxes.openableSlots:0,options=bridgeStrategy(cmd.strategy);
+ const limitReason=scan.snapshot&&freeBefore<scan.snapshot.boxes.freeSlots?
+  scan.snapshot.boxes.relief?.enabled&&freeBefore===scan.snapshot.boxes.relief.high-scan.snapshot.inventory.count?'inventory_relief':'inventory_reserved_slots':'inventory_full';
+ for(let index=0;!reason&&index<options.box_batch_limit;index++){
+  if(index>=freeBefore){reason=limitReason;break;}
   if(index){if(Date.now()-started>=25){reason='box_batch_yield';break;}scan=boxScanFresh(cmd);reason=boxScanGuard(scan,cmd.account);if(reason)break;}
   const counts=scan.snapshot.boxes.counts,first=scan.snapshot.record.boxes%3;
-  const grade=[first,(first+1)%3,(first+2)%3].find(g=>counts[g]>0);
+  const grade=[first,(first+1)%3,(first+2)%3].find(g=>counts[g]>0&&scan.snapshot.boxes.enabledGrades[g]);
   if(grade===undefined){reason='box_empty';break;}
   const before=scan.snapshot.record.boxes,queueBefore=counts[grade];
   // Install uncertainty before calling native code. Exceptions and lost replies
   // cannot authorize a second consumption, including after a confirmed prefix.
-  receipt.status='pending';receipt.reason='box_result_unconfirmed';receipt.pendingRecord=before;
+  receipt.status='pending';receipt.reason='box_result_unconfirmed';receipt.pendingRecord=before;checkpointBoxReceipt(receipt);
   try{
    const accepted=call(drop,'TryOpen',[grade]);
    const queueAfter=call(drop,'Count',[grade]),after=call(record,'get_BoxOpenCount');
@@ -478,6 +521,97 @@ function openBoxBatch(cmd){
  }
  receipt.stopReason=reason||'box_batch_limit';
  if(receipt.status!=='pending')receipt.reason=receipt.openedCount?null:reason;
- return {...receipt};
+ checkpointBoxReceipt(receipt);return {...receipt};
 }
-Object.assign(rpc.exports,{restoreboxreceipts(rows){return restoreBoxReceipts(rows);},boxscan(input){return onMain(()=>boxScanFresh(input));},openboxes(cmd){return onMain(()=>openBoxBatch(cmd));},opportunities(options){return onMain(()=>opportunityScan(options));},execute(cmd){return onMain(()=>{const result=executeAction(cmd);if(typeof lastScanPerformance!=='undefined'&&lastScanPerformance)result.bridgePerformance={...lastScanPerformance};return result;});}});
+function checkpointBoxReceipt(receipt){
+ try{send({channel:'box_receipt',receipt:JSON.parse(JSON.stringify(receipt))});}catch(error){}
+}
+function boxNotStarted(cmd){
+ if(typeof cmd?.requestId!=='string'||!cmd.requestId.length||cmd.requestId.length>120||
+    typeof cmd.account!=='string'||!cmd.account||cmd.account.length>256)throw Error('invalid_box_request');
+ const previous=boxReceipts.get(cmd.requestId);
+ if(previous){if(previous.account!==cmd.account)throw Error('account_changed');return boxReceiptResult(previous);}
+ const receipt={requestId:cmd.requestId,account:cmd.account,status:'waiting',reason:'native_request_not_started',
+  executionState:'not_started',openedCount:0,observations:[]};
+ boxReceipts.set(cmd.requestId,receipt);
+ while(boxReceipts.size>32){const done=[...boxReceipts].find(([key,r])=>key!==cmd.requestId&&!['pending','unresolved'].includes(r.status));if(!done)break;boxReceipts.delete(done[0]);restoredBoxRequests.delete(done[0]);}
+ checkpointBoxReceipt(receipt);return {...receipt};
+}
+function openBoxRequest(cmd){
+ try{return openBoxBatch(cmd);}catch(error){
+  // No receipt means the prerequisite scan failed before native consumption.
+  // Once registered, its exact outcome remains authoritative, including pending.
+  if(boxReceipts.has(cmd?.requestId))throw error;
+  return boxNotStarted(cmd);
+ }
+}
+function onMainRequest(fn,onNotStarted){
+ const result=onMain(fn);
+ return result&&typeof result.catch==='function'?result.catch(error=>{
+  if(!isMainNotStarted(error))throw error;
+  return onNotStarted(error);
+ }):result;
+}
+function executeNotStarted(cmd){
+ return executeWorkshopRequest(cmd,()=>({status:'waiting',reason:'native_request_not_started',executionState:'not_started'}));
+}
+const workshopReceipts=new Map(),workshopKinds=new Set(['combine','forge','refine','decompose','deposit','withdraw']);
+const workshopTerminal=new Set(['confirmed','rejected','waiting','stale','no_change']);
+function stableWorkshopCommand(value){
+ if(Array.isArray(value))return value.map(stableWorkshopCommand);
+ if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,stableWorkshopCommand(value[k])]));
+ return value;
+}
+function validWorkshopReceipt(r){
+ return r&&workshopKinds.has(r.kind)&&typeof r.requestId==='string'&&/^[A-Za-z0-9:_-]{1,120}$/.test(r.requestId)&&
+  typeof r.account==='string'&&r.account.length>0&&r.account.length<=256&&typeof r.key==='string'&&r.key.length>0&&r.key.length<=2048&&
+  typeof r.signature==='string'&&/^[0-9a-f]{64}$/.test(r.signature)&&Number.isFinite(r.at)&&r.at>0&&
+  r.result&&typeof r.result==='object'&&!Array.isArray(r.result)&&(r.result.status==='pending'||workshopTerminal.has(r.result.status));
+}
+function restoreWorkshopReceipts(rows){
+ if(!Array.isArray(rows)||rows.length>256||rows.some(r=>!validWorkshopReceipt(r))||new Set(rows.map(r=>r.requestId)).size!==rows.length)throw Error('invalid_workshop_receipt_store');
+ for(const r of rows){const old=workshopReceipts.get(r.requestId);if(old&&JSON.stringify(old)!==JSON.stringify(r))throw Error('workshop_receipt_conflict');}
+ for(const r of rows)workshopReceipts.set(r.requestId,JSON.parse(JSON.stringify(r)));
+ return workshopReceipts.size;
+}
+function workshopReceipt(query){
+ const r=workshopReceipts.get(query?.requestId);
+ if(!r||r.account!==query.account||r.kind!==query.kind||r.key!==query.key)return null;
+ if(r.kind==='refine'&&r.result.status==='pending'&&r.result.reason==='refine_result_unconfirmed'){
+  try{const recovered=revalidateRefineReceipt(r);if(recovered){r.result=recovered;checkpointWorkshopReceipt(r);}}catch(error){}
+ }
+ return JSON.parse(JSON.stringify(r));
+}
+function checkpointWorkshopReceipt(receipt){
+ // Message delivery and the host's synchronous return checkpoint both precede
+ // HTTP delivery. A crash between native execution and either remains unknown.
+ try{send({channel:'workshop_receipt',receipt:JSON.parse(JSON.stringify(receipt))});}catch(error){}
+}
+function executeWorkshopRequest(cmd,invokeAction=executeAction){
+ if(cmd.kind==='box')return {status:'waiting',reason:'legacy_box_request_blocked',executionState:'not_started'};
+ // Late commands from legacy clients must not cross the recovery barrier.
+ if(['deposit','withdraw'].includes(cmd.kind)&&cmd.requestId===undefined)return {status:'waiting',reason:'storage_request_id_required',executionState:'not_started'};
+ if(!workshopKinds.has(cmd.kind)||cmd.requestId===undefined)return invokeAction(cmd);
+ if(typeof cmd.requestId!=='string'||!/^[A-Za-z0-9:_-]{1,120}$/.test(cmd.requestId)||
+    typeof cmd.account!=='string'||!cmd.account||cmd.account.length>256||typeof cmd.key!=='string'||!cmd.key||cmd.key.length>2048)throw Error('invalid_workshop_request');
+ const {requestId,...command}=cmd;
+ const signature=Checksum.compute('sha256',JSON.stringify(stableWorkshopCommand(command))),previous=workshopReceipts.get(cmd.requestId);
+ if(previous){
+  if(previous.signature!==signature||previous.account!==cmd.account||previous.kind!==cmd.kind||previous.key!==cmd.key)throw Error('workshop_request_conflict');
+  return {...JSON.parse(JSON.stringify(previous.result)),workshopReceipt:JSON.parse(JSON.stringify(previous)),source:'cached_workshop_receipt'};
+ }
+ while(workshopReceipts.size>=32){
+  const done=[...workshopReceipts].find(([key,r])=>workshopTerminal.has(r.result.status));if(!done)break;workshopReceipts.delete(done[0]);
+ }
+ if(workshopReceipts.size>=256)return {status:'waiting',reason:'workshop_receipt_capacity'};
+ const receipt={requestId:cmd.requestId,account:cmd.account,kind:cmd.kind,key:cmd.key,signature,at:Date.now()/1000,
+  result:{status:'pending',reason:'workshop_result_unconfirmed'}};
+ workshopReceipts.set(cmd.requestId,receipt);checkpointWorkshopReceipt(receipt);
+ try{
+  const result=invokeAction(cmd);
+  if(!result||!(result.status==='pending'||workshopTerminal.has(result.status)))throw Error('invalid_workshop_result');
+  receipt.result=jsonSafe(result);checkpointWorkshopReceipt(receipt);
+  return {...result,workshopReceipt:JSON.parse(JSON.stringify(receipt))};
+ }catch(error){checkpointWorkshopReceipt(receipt);throw error;}
+}
+Object.assign(rpc.exports,{restoreworkshopreceipts(rows){return restoreWorkshopReceipts(rows);},workshopreceipt(query){return onMain(()=>workshopReceipt(query));},restoreboxreceipts(rows){return restoreBoxReceipts(rows);},boxscan(input){return onMain(()=>boxScanFresh(input));},openboxes(cmd){return onMainRequest(()=>openBoxRequest(cmd),()=>boxNotStarted(cmd));},opportunities(options){return onMain(()=>opportunityScan(options));},execute(cmd){return onMainRequest(()=>{const result=executeWorkshopRequest(cmd);if(typeof lastScanPerformance!=='undefined'&&lastScanPerformance)result.bridgePerformance={...lastScanPerformance};return result;},()=>executeNotStarted(cmd));}});

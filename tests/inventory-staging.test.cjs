@@ -47,7 +47,7 @@ test('protected movable inventory can stage, but it never enters a consumption r
 });
 test('immovable inventory reports a blocked flow instead of pretending to organize it',()=>{
  const {actions,snapshot,issues}=planningFixture([planningEntry('locked',1,1,'inventory',{protected:true,blocked:true})],1,2).scan();
- assert.equal(actions.length,0);assert.equal(snapshot.inventoryFlow.blocked,true);assert.equal(snapshot.inventoryFlow.blockedTransfers,1);assert.match(issues[0],/没有可安全转仓/);
+ assert.equal(actions.length,0);assert.equal(snapshot.inventoryFlow.blocked,true);assert.equal(snapshot.inventoryFlow.blockedTransfers,1);assert.match(issues[0],/暂无可转仓物品/);
 });
 test('ready consumption has priority over depositing more idle items',()=>{
  const entries=[planningEntry('gems',16,9),planningEntry('trade',1,1,'inventory',{protected:true})];
@@ -65,7 +65,7 @@ test('two full containers exchange an idle item, finish the recipe and never rec
 test('full containers without a safe exchange wait and never consume protected stock',()=>{
  const bag=planningEntry('bag',16,4),stored=planningEntry('stored',16,5,'storage'),locked=planningEntry('locked',1,1,'inventory',{protected:true,blocked:true});
  const {actions,snapshot,issues}=planningFixture([bag,locked,stored],2,1,[gemRecipe]).scan();
- assert.equal(actions.length,0);assert.equal(snapshot.inventoryFlow.blocked,true);assert.match(issues[0],/没有可安全整理/);
+ assert.equal(actions.length,0);assert.equal(snapshot.inventoryFlow.blocked,true);assert.match(issues[0],/当前无可执行整理组合/);
 });
 
 

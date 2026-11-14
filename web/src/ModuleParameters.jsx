@@ -1,23 +1,9 @@
 import React,{useRef} from 'react';
-import {Parameter} from './Parameters';
+import {ParameterSections} from './Parameters';
 
-const keys={
- box:['inventory_pressure_percent','interval'],
- equipment:['equipment_hold_seconds','equipment_return_seconds','equipment_min_gain_percent'],
- active:['recommended_actives','allow_active_refund','skill_point_reserve'],
- passive:['allow_passive_refund','skill_point_reserve'],rune:['rune_priority','soul_reserve','permanent_runes','premium_reserve'],
- unlock:['action_retry_seconds'],pet_unlock:['pet_mode'],
- progress:['push_wait_seconds','push_failure_limit','farm_min_seconds','farm_retry_seconds','farm_retry_finish_seconds','farm_level_offset','farm_candidate_count','farm_failure_limit','adaptive_farming','farm_sample_seconds','farm_probe_seconds','farm_recheck_seconds','farm_switch_gain_percent'],
- combine:['inventory_pressure_percent','action_cooldown_seconds'],
- decompose:['recycle_socketed_equipment','recycle_pressure_cleanup','recycle_pressure_max_grade','recycle_batch','recycle_normal_tier_gap','recycle_rare_tier_gap'],
- storage:['inventory_pressure_percent','storage_pressure_percent','auto_sort_items','sort_cooldown_seconds'],forge:['forge_priority_main_weapon','forge_priority_sub_weapon','forge_priority_helmet','forge_priority_armor','forge_priority_gloves','forge_priority_boots','forge_priority_accessory','action_retry_seconds','action_cooldown_seconds'],
- refine:['action_retry_seconds','action_cooldown_seconds'],mail:['action_retry_seconds'],
- tower:['tower_retry_seconds','tower_require_growth'],
- ui_cleanup:['preserve_open_panels','pause_on_manual_panels','battle_recovery_wait_seconds','battle_recovery_retry_seconds','stage_stall_wait_seconds','stage_transition_wait_seconds','action_retry_seconds','action_cooldown_seconds'],
-};
 export default function ModuleParameters({module,schema,config,update}){
  const controls=useRef(new Map());
  if(!schema)return null;
- const fields=(keys[module]||[]).map(key=>schema.fields.find(p=>p.key===key)).filter(Boolean);
- return <details className="module-tuning" aria-label="模块参数"><summary>展开设置与用途说明</summary>{fields.map(spec=><Parameter key={spec.key} spec={spec} value={spec.scope==='root'?config[spec.key]:config.strategy?.[spec.key]} update={update} controls={controls} idPrefix={'module-'+module}/>)}</details>;
+ const fields=schema.fields.filter(p=>p.modules?.includes(module));
+ return <details className="module-tuning" aria-label="模块参数"><summary>展开设置与用途说明 · {fields.length} 项</summary><ParameterSections fields={fields} config={config} update={update} controls={controls} idPrefix={'module-'+module}/></details>;
 }

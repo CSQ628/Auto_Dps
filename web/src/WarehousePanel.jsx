@@ -1,10 +1,11 @@
 import React from 'react';
 import {pauseMessage} from './runtime-status.mjs';
 import {boxStatusMessage} from './box-status.mjs';
+import {refinementStatusMessage,refinementMaterialStatusMessage} from './refinement-status.mjs';
 import {HardDrives,ShieldCheck,Stack} from '@phosphor-icons/react';
 
 export default function WarehousePanel({instance,config={}}){
- const s=instance?.snapshot,storage=s?.storage,flow=s?.inventoryFlow,fusion=s?.combining,recycling=s?.recycling,forge=s?.forging;
+ const s=instance?.snapshot,storage=s?.storage,flow=s?.inventoryFlow,fusion=s?.combining,recycling=s?.recycling,forge=s?.forging,refining=s?.refining;
  const parts={1:'主武器',2:'副武器',3:'头盔',4:'护甲',5:'手套',6:'靴子',7:'饰品'};
  const sourceText=!forge?.sourceKnown?'':forge.source==='drop'?'按当前可刷材料筹备':forge.source==='fusion_ready'||forge.source==='fusion'?'材料可经合成随机获得，不保证一次产出':forge.source==='future'?'材料主要来自后续关卡或尚未开放的合成':'';
  const forgeText=!forge?'正在读取制作条件':forge.status==='disabled'?'自动制作已关闭':forge.status==='no_need'?'当前可用配方没有需要补充的装备':`${parts[forge.part]||'装备'} · 优先级 ${forge.priority??'待检查'}${forge.minLevel?` · ${forge.minLevel}～${forge.maxLevel}级配方`:''}：${forge.ready?'材料齐全，等待制作':forge.status==='storage_pending'?'材料齐全，先取出仓库材料':'等待配方材料'}`;
@@ -16,6 +17,8 @@ export default function WarehousePanel({instance,config={}}){
    <p aria-label="自动宝箱状态"><b>自动宝箱：</b>{pauseMessage(instance,config)||boxStatusMessage(instance?.box_status)}。</p>
    <p aria-label="自动制作状态"><b>自动制作：</b>{forgeText}。{sourceText&&<span>{sourceText}。当前有效部位共用材料按一份配方保留，余量继续合成。</span>}{forge?.materials?.length>0&&<span> 材料进度 {forge.materials.map((m,i)=>`${i+1}：${m.available}/${m.required}${m.protected?`（另有 ${m.protected} 件受保护）`:''}`).join('；')}。</span>}</p>
    <p aria-label="自动合成状态"><b>自动合成：</b>{fusionText}。</p>
+   <p aria-label="精炼材料合成状态"><b>精炼材料合成：</b>{refinementMaterialStatusMessage(fusion?.refinementMaterials)}。由“方块合成”开关控制；装饰、宝石、纹章按游戏原生配方合成，产物与品质以实际回执为准。</p>
+   <p aria-label="自动精炼状态"><b>装备精炼（镶嵌）：</b>{refinementStatusMessage(refining)}。先保留精炼材料的完整合成批次，再用余量填空插槽，已有精炼效果保留。</p>
    <p aria-label="旧装备处理状态"><b>旧装备：</b>可回收 {recycling?.obsolete??0} 件；暂留高品质 {recycling?.highGradeRetained??0} 件；锁定 {recycling?.locked??0} 件。{recycling?.socketedAllowed?'已允许旧装备连同镶嵌回收，镶嵌不返还。':`带镶嵌暂留 ${recycling?.socketedRetained??0} 件，需开启回收授权。`}</p>
    <div className="warehouse-details"><span>已匹配配方 <b>{fusion?.groups??0} 组</b></span><span>配方保留材料 <b>{flow?.recipeReserved??0} 件</b></span><span>受消费保护 <b>{flow?.protectedMaterials??0} 件</b></span><span>系统排序 <b>{instance?.feature_evidence?.sort?.confirmed??0} 次确认</b></span></div>
   </div><p className="field-help">可交易装备可以换装与转仓，交易属性保持。锁定装备可无损存取，不参与合成、分解或镶嵌，穿在身上时不替换。未确认、登记和配方保留物品不回收；带镶嵌旧装备按回收开关处理。</p>

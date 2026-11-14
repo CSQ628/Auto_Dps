@@ -7,7 +7,7 @@ function entry(uid,count=1,kind=1,place='inventory'){
 function planning(entries,recipes=[recipe],extra={}){
  const storage={get_TabCount:()=>1,IsTabUnlocked:()=>true,get_OccupiedCount:()=>entries.filter(e=>e.place==='storage').length,get_SlotCountPerTab:()=>extra.storageCapacity??100,get_IsFull:()=>entries.filter(e=>e.place==='storage').length>=(extra.storageCapacity??100)};
  const gear=extra.gear||[],im={get_Storage:()=>storage,get_Cube:()=>({get_Level:()=>extra.cubeLevel??10,get_Capacity:()=>Object.hasOwn(extra,"cubeCapacity")?extra.cubeCapacity:9}),GetEquipment:()=>({get_Has:()=>gear})};
- const c={call:(o,n,args=[])=>o[n](...args),list:x=>x,itemInfo:p=>p.info,read:(o,n)=>o[n],isTradable:p=>!!p?.tradable,protectedItem:(_,p)=>entries.some(e=>e.item===p&&(e.protected||e.socketed)),canMoveStoredItem:()=>true,canRecycleItem:(_,p,allow)=>entries.some(e=>e.item===p&&!e.protected&&(!e.socketed||allow)),protectedEquipped:(_,p)=>!!p?.locked,workshopCapacity:()=>Object.hasOwn(extra,'cubeCapacity')?extra.cubeCapacity:9,containerEntries:()=>entries,keyHash:x=>x,hasAttachmentSpace:()=>true,
+ const c={call:(o,n,args=[])=>o[n](...args),list:x=>x,itemInfo:p=>p.info,read:(o,n)=>o[n],isTradable:p=>!!p?.tradable,protectedItem:(_,p)=>entries.some(e=>e.item===p&&(e.protected||e.socketed)),canMoveStoredItem:()=>true,canRecycleItem:(_,p,allow)=>entries.some(e=>e.item===p&&!e.protected&&(!e.socketed||allow)),protectedEquipped:(_,p)=>!!p?.locked,workshopCapacity:()=>Object.hasOwn(extra,'cubeCapacity')?extra.cubeCapacity:9,containerEntries:()=>entries,keyHash:x=>x,equipmentRevision:p=>p.get_Uid(),hasAttachmentSpace:()=>true,
   fixtureCatalogue:{recipes,tiers:extra.tiers||[{tier:1,min:1}],materialSources:extra.materialSources,normalMax:100,towerMax:100,maxCharacterLevel:100},upgrades:extra.upgrades||[]};
  vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/planner.js','utf8')+'\ncatalogueCache=fixtureCatalogue;equipmentPlans=(_,a,b,c,needed)=>{for(const p of upgrades)needed.add(p.uid);return upgrades;};globalThis.run=inventoryOpportunities;',c);
  return {scan(modules={},options={}){const snapshot={characters:extra.characters||[{id:1,level:1}],squad:[1],record:{maxCleared:extra.frontier??0},inventory:{count:entries.filter(e=>e.place==='inventory').length,capacity:extra.capacity??100}},actions=[],issues=[];
@@ -46,10 +46,10 @@ test('equippable gear is retained even when synthesis is disabled',()=>{
  const {actions}=planning([entry('upgrade'),entry('obsolete')],[],{capacity:2,upgrades}).scan({combine:false});
  assert.ok(actions.some(a=>a.kind==='equipment'));assert.deepEqual(Array.from(actions.find(a=>a.kind==='decompose').allowed),['obsolete']);
 });
-test('socket material belongs to one hero and cannot also be combined',()=>{
+test('complete refinement-material batch precedes equipment append without overlap',()=>{
  const gear=[{get_IsLocked:()=>false,get_Uid:()=>'equipped',get_Sockets:()=>[]}];
  const f=planning([entry('gems',9,16)],[gemRecipe],{gear,characters:[{id:1,level:1},{id:2,level:1}],capacity:1});
- let {actions,snapshot}=f.scan();assert.equal(actions.filter(a=>a.kind==='refine').length,1);assert.ok(!actions.some(a=>a.kind==='combine'));assert.equal(snapshot.inventoryFlow.blocked,false);
+ let {actions,snapshot}=f.scan();assert.equal(actions.filter(a=>a.kind==='refine').length,0);assert.equal(actions.find(a=>a.kind==='combine').materialCounts.gems,9);assert.equal(snapshot.inventoryFlow.blocked,false);
  actions=f.scan({refine:false}).actions;assert.equal(actions.find(a=>a.kind==='combine').materialCounts.gems,9);assert.ok(!actions.some(a=>a.kind==='refine'));
 });
 test('forge reservation cannot also enter synthesis and releases when forge is disabled',()=>{
@@ -65,7 +65,7 @@ function execution(kind='combine'){
  const cube={get_IsEmpty:()=>!selected.length,get_Has:()=>selected,CanReserveMore:()=>selected.length<100};
  let tier=0,category=0,include=true;
  const view={CanStartExecute:()=>true,get_SelectedTier:()=>tier,get_SelectedCategory:()=>category,get_IncludeStorageToggle:()=>({get_isOn:()=>include,set_isOn:x=>{include=x;}}),SetCategory:x=>{category=x;},SetSelectedTier:x=>{tier=x;},RefreshLevelRangeOptions:()=>{},RebuildRules:()=>{},get_CanExecute:()=>true,
-  TryExecute:()=>{calls.push('execute');data.count-=selected.length;return true;},ReleaseAll:()=>{selected.length=0;}};
+  TryExecute:()=>{calls.push('execute');data.count-=selected.length;if(kind==='combine')inventory.items.push({...item,get_Uid:()=> 'product',get_ConfigID:()=>2,get_Count:()=>1});return true;},ReleaseAll:()=>{selected.length=0;}};
  const im={get_Inventory:()=>inventory,get_Storage:()=>({get_Has:()=>[],get_SlotCountPerTab:()=>49,IsTabUnlocked:()=>true}),get_Cube:()=>cube,get_Input:()=>({get_IsHolding:()=>false}),IsInUse:()=>false,IsEquipped:()=>false,FindRegistrations:()=>[],TryMoveToCube:p=>{selected.push(p);return true;}};
  const c={api:()=>()=>0,list:x=>x,read:(o,n)=>o[n],ref:x=>x,call:(o,n,a=[])=>o[n](...a),single:n=>n==='DG.UI.PopupLayoutHandler'?{get_AnyPopupOpen:()=>false}:n==='DG.Manager.CurrencyManager'?{Get:()=>0}:im};
  vm.createContext(c);vm.runInContext(fs.readFileSync('bridge/systems.js','utf8')+'\nsceneObject=()=>testView;activateCubeView=()=>({});globalThis.run=cubeAction;globalThis.recycle=guardedRecycleAction;',c);c.testView=view;
@@ -287,5 +287,7 @@ test('alternative part retention never enters the selected native forge input li
  const materialSources={known:true,materials:{1:{firstStage:1,firstFreeStage:1,fusion:[]},2:{firstStage:1,firstFreeStage:1,fusion:[]},3:{firstStage:1,firstFreeStage:1,fusion:[]}}};
  const r=planning(entries,[main,accessory],{frontier:1,materialSources}).scan();
  assert.deepEqual(Array.from(r.actions.find(a=>a.kind==='forge').allowed),['main']);
+ assert.equal(JSON.stringify(r.actions.find(a=>a.kind==='forge').materialCounts),JSON.stringify({main:1}));
+ assert.equal(r.actions.find(a=>a.kind==='forge').batchSize,1);
  assert.equal(r.snapshot.inventoryFlow.recipeReserved,2);
 });

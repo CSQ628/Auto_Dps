@@ -40,6 +40,7 @@ test('fusion selects the unlocked recipe band and checks the separate material t
  f.view.get_SelectedTier=()=>tier;f.view.SetSelectedTier=value=>{tier=value;};f.view.get_SelectedCategory=()=>0;
  f.view.SetCategory=()=>{};f.view.RefreshLevelRangeOptions=()=>{};
  f.view.get_CanExecute=()=>tier===5&&f.selected.length===1;
+ f.view.TryExecute=()=>{f.calls.push('execute');f.inventory.items=[{...p,get_Uid:()=> 'product',get_ConfigID:()=>2010603}];return true;};
  const r=f.run({kind:'combine',tier:5,materialTier:6,category:0,maxGrade:2,materialCounts:{old:1},batchSize:1});
  assert.equal(r.status,'confirmed');assert.equal(tier,1);assert.ok(f.calls.includes('execute'));
 });

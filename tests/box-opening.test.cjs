@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),test=require('node:test'),assert=require('node:assert/strict');
 
 function fixture({panel=null,cube=false,holding=false,full=false,pause=false,accepted=true,advance=true,online=true,backlogged=false,blocked=false,counts=[10,2,1]}={}){
- const calls=[],inventory={locked:[{uid:'locked-gear',count:1}],count:full?46:38,capacity:46},cubeItems=cube?['manual-ingredient']:[];
+ const calls=[],inventory={locked:[{uid:'locked-gear',count:1}],count:full?46:30,capacity:46},cubeItems=cube?['manual-ingredient']:[];
  let opened=205;
  const drop={Count:grade=>counts[grade],TryOpen:grade=>{calls.push('TryOpen');if(accepted&&advance){counts[grade]--;opened++;}return accepted;}};
  const im={get_Input:()=>({get_IsHolding:()=>holding}),get_Cube:()=>({get_IsEmpty:()=>!cubeItems.length})};

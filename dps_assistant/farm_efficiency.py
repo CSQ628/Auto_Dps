@@ -25,7 +25,7 @@ def exploration_state(snapshot, state, session):
     return coverage
 
 
-def observe_efficiency(snapshot, state, session, now, config, route, candidates, allow_selection=True):
+def observe_efficiency(snapshot, state, session, now, config, route, candidates, allow_selection=True, finalize_previous=False):
     from .policy import strength_signature
 
     options = strategy(config)
@@ -64,8 +64,8 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
     transitioning = any(p.get('action', {}).get('kind') in ('tower', 'tower_return', 'battle_recover')
                         or p.get('action', {}).get('kind') == 'progress' and p['action'].get('phase') == 'travel'
                         for p in pending)
-    active = (config.get('running') is True and config.get('modules', {}).get('progress') is True
-              and snapshot.get('loaded') is True and state.get('growth', {}).get('phase') in ('farm', 'endgame')
+    eligible = (config.get('running') is True and config.get('modules', {}).get('progress') is True
+              and snapshot.get('loaded') is True
               and snapshot.get('experienceBlocked') is False and not snapshot.get('automationBlocked') and not transitioning
               and stage.get('category') == 0 and stage.get('repeat') is True and key in keys
               and readiness.get('known') is True and readiness.get('charactersInitialized') is True
@@ -78,6 +78,18 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
               and current.get('result') in ('InProgress', 'Cleared', 'Failed') and _number(current.get('sequence'))
               and roster_valid and bool(learners)
               and all(_number(c.get('expTotal')) and _number(c.get('level')) for c in characters))
+    phase = state.get('growth', {}).get('phase')
+    active = eligible and phase in ('farm', 'endgame')
+    previous = cache.get('last', {})
+    gap_limit = max(15, config.get('interval', 2) * 3)
+    # The growth observer may release a frontier retry on this exact settlement.
+    # Consume only the tail of an already valid segment in this same strength
+    # epoch; never start or extend farming while pushing, or select another map.
+    finishing = (eligible and finalize_previous and phase == 'push' and key == _key(route)
+                 and previous.get('key') == key and 0 < now - previous.get('at', now) <= gap_limit
+                 and (current.get('result') in ('Cleared', 'Failed')
+                      or current.get('result') == 'InProgress' and _number(current.get('elapsed'))
+                      and current['elapsed'] <= 10))
     if active and key == _key(route):
         # Growth invalidates rates and grants a fresh strength-specific probe below.
         # A separate visit clock bounds repeated grants without mixing those rates.
@@ -102,7 +114,7 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
     else:
         route.pop('probe_last', None)
         route.pop('visit_probe_last', None)
-    if active:
+    if active or finishing:
         totals = {str(c['id']): c['expTotal'] for c in learners}
         previous = cache.get('last', {})
         seconds = now - previous.get('at', now)
@@ -133,8 +145,11 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
                 sequence = outcome.get('sequence')
                 if field and _number(sequence) and sequence not in bucket[field]:
                     bucket[field] = (bucket[field] + [sequence])[-40:]
-        cache['last'] = {'key': key, 'at': now, 'totals': totals, 'sequence': current['sequence'],
-                         'segment_since': previous['segment_since'] if continuous else now}
+        if active:
+            cache['last'] = {'key': key, 'at': now, 'totals': totals, 'sequence': current['sequence'],
+                             'segment_since': previous['segment_since'] if continuous else now}
+        else:
+            cache.pop('last', None)
     else:
         cache.pop('last', None)
 
@@ -172,14 +187,38 @@ def observe_efficiency(snapshot, state, session, now, config, route, candidates,
     by_key = {_key(p): p for p in rows if p['ready'] and _key(p) not in excluded}
     selected = by_key.get(_key(route))
     result['recent_tested_count'] = len(by_key)
-    if not active or not allow_selection or key != _key(route):
-        return result
-    if selected:
+    if (active or finishing) and selected and key == _key(route):
         coverage['measured'][key] = now
         result['tested_count'] = sum(k in coverage['measured'] for k in keys)
+    if finishing:
+        result['reason'] = '保留练级末场的同战力实测结果，继续主线重试。'
+    if not active or not allow_selection or key != _key(route):
+        return result
     probe_limit = max(options['farm_sample_seconds'], options['farm_probe_seconds'])
     visit_exhausted = route.get('visit_active_seconds', 0) >= 2 * probe_limit
-    timed_out = not selected and (route.get('active_seconds', 0) >= probe_limit or visit_exhausted)
+    # The first battle may have started before our first valid sample. Its
+    # native settlement proves progress, but cannot count as a fully observed
+    # round. Give the next continuously observed round a chance to finish,
+    # within the existing total visit limit. Normal stages have no Boss timer.
+    bucket = measurements.get(key, {})
+    context = state.get('battle_observation', {}).get('contexts', {}).get(str(current.get('sequence')), {})
+    round_waiting = (not selected and not visit_exhausted and bool(bucket)
+                     and current.get('result') == 'InProgress' and _number(current.get('elapsed'))
+                     and context.get('category') == 0 and context.get('farming') is True
+                     and context.get('level') == stage['level'] and context.get('difficulty') == stage['difficulty']
+                     and _number(context.get('started'))
+                     and context['started'] >= max(bucket['since'], cache['since'], previous.get('segment_since', now))
+                     and any(outcome.get('category') == 0 and outcome.get('farming') is True
+                             and outcome.get('level') == stage['level'] and outcome.get('difficulty') == stage['difficulty']
+                             and outcome.get('result') in ('Cleared', 'Failed')
+                             and _number(outcome.get('elapsed')) and outcome['elapsed'] > 0
+                             and _number(outcome.get('sequence')) and outcome['sequence'] < current['sequence']
+                             and _number(outcome.get('observed'))
+                             and max(route['since'], cache['since']) <= outcome['observed'] <= now
+                             for outcome in state.get('battle_observation', {}).get('outcomes', [])))
+    timed_out = not selected and (visit_exhausted or route.get('active_seconds', 0) >= probe_limit and not round_waiting)
+    if round_waiting and route.get('active_seconds', 0) >= probe_limit:
+        result['reason'] = '本图已有真实结算，等待当前完整观测的一轮结束；累计试打上限仍有效。'
     if timed_out:
         excluded.add(key)
         route['failed_stages'] = sorted(excluded)

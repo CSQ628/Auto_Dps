@@ -1,0 +1,77 @@
+{
+  "game_assembly_sha256": "83acadf44d77139103e87942adee78c7e7c236ab8cdfdb76bb8810f3c47972c9",
+  "configuration_only": true,
+  "stage_count": 160,
+  "equipment_box_count": 276,
+  "equipment_count": 1278,
+  "player_claims_matched": 11,
+  "crafting_tiers_7_to_10_matched": true,
+  "base_configuration_probability_only": true,
+  "actual_per_kill_rate_measured": false,
+  "examples": [
+    {
+      "source": "痛苦 3-1 普通怪装备箱",
+      "grade": "不朽",
+      "percent": 0.0011095,
+      "box_id": 611301
+    },
+    {
+      "source": "痛苦 3-1精英/首领装备箱",
+      "grade": "不朽",
+      "percent": 0.0387182,
+      "box_id": 621301
+    },
+    {
+      "source": "痛苦 3-10精英/首领装备箱",
+      "grade": "超越",
+      "percent": 0.0056764,
+      "box_id": 631301
+    },
+    {
+      "source": "痛苦 4-10精英/首领装备箱",
+      "grade": "太初",
+      "percent": 0.0001733,
+      "box_id": 631401
+    },
+    {
+      "source": "噩梦 4-10精英/首领装备箱",
+      "grade": "太初",
+      "percent": 0.0002476,
+      "box_id": 631801
+    },
+    {
+      "source": "地狱 4-10精英/首领装备箱",
+      "grade": "太初",
+      "percent": 0.0002477,
+      "box_id": 631901
+    },
+    {
+      "source": "7阶材料主武器制作",
+      "grade": "不朽",
+      "percent": 0.1999997960000041,
+      "recipe_id": 50501
+    },
+    {
+      "source": "8阶材料主武器制作",
+      "grade": "太初",
+      "percent": 0.0005999999916000001,
+      "recipe_id": 50601
+    },
+    {
+      "source": "9阶材料主武器制作",
+      "grade": "神话",
+      "percent": 1.9799999722800005e-05,
+      "recipe_id": 50701
+    },
+    {
+      "source": "10阶材料主武器制作",
+      "grade": "神话",
+      "percent": 2.0100000201e-05,
+      "recipe_id": 50801
+    }
+  ],
+  "sources": {
+    "ordinary.json": "e1bad676a04ce27d9c5af89963eee422f41885f82e941860835297a1afff8773",
+    "ordinary-details.json": "16d48171c8bb38db627d1e5c450acc974c3f06eff28c88d111950ba817dc17be"
+  }
+}

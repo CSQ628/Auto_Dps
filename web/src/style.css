@@ -15,3 +15,5 @@
 .milestone-scope{border-top:1px solid var(--line);margin-top:8px;padding-top:8px;display:grid;gap:5px;overflow-wrap:anywhere}.milestone-scope>span{font-size:12px;color:var(--ink)}
 
 @media(max-width:560px){.milestone-grid{grid-template-columns:minmax(0,1fr)}}
+
+.parameter-subgroup{border-top:1px solid var(--line);margin-top:16px}.parameter-subgroup>summary{cursor:pointer;padding:16px 0;font-size:14px;font-weight:600;color:var(--ink)}.parameter-subgroup>summary small{font-weight:400;color:var(--muted)}.parameter-intro>.fui-Input{width:100%;max-width:560px}.module-tuning .parameter-subgroup{margin-top:8px}.module-tuning .parameter-subgroup>summary{font-size:13px;padding:12px 0}

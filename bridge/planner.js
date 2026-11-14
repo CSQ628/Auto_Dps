@@ -26,9 +26,76 @@ function mailClaimObservation(){
  const {available,observer,sequence,receipts,readError}=mailClaimJournal;
  return {available,observer,sequence,receipts,readError:!!readError};
 }
+
+// Mirrored from the validated Python schema; parity is checked by the schema regression.
+const detailedParameterRules={"box_grade_0":{"type":"boolean","default":true},"box_grade_1":{"type":"boolean","default":true},"box_grade_2":{"type":"boolean","default":true},"box_batch_limit":{"type":"number","default":8,"min":1,"max":8,"step":1},"box_free_slots":{"type":"number","default":0,"min":0,"max":100,"step":1},"equipment_part_main_weapon":{"type":"boolean","default":true},"equipment_part_sub_weapon":{"type":"boolean","default":true},"equipment_part_helmet":{"type":"boolean","default":true},"equipment_part_armor":{"type":"boolean","default":true},"equipment_part_gloves":{"type":"boolean","default":true},"equipment_part_boots":{"type":"boolean","default":true},"equipment_part_accessory":{"type":"boolean","default":true},"forge_part_main_weapon":{"type":"boolean","default":true},"forge_part_sub_weapon":{"type":"boolean","default":true},"forge_part_helmet":{"type":"boolean","default":true},"forge_part_armor":{"type":"boolean","default":true},"forge_part_gloves":{"type":"boolean","default":true},"forge_part_boots":{"type":"boolean","default":true},"forge_part_accessory":{"type":"boolean","default":true},"refine_part_main_weapon":{"type":"boolean","default":true},"refine_part_sub_weapon":{"type":"boolean","default":true},"refine_part_helmet":{"type":"boolean","default":true},"refine_part_armor":{"type":"boolean","default":true},"refine_part_gloves":{"type":"boolean","default":true},"refine_part_boots":{"type":"boolean","default":true},"refine_part_accessory":{"type":"boolean","default":true},"equipment_fill_empty":{"type":"boolean","default":true},"equipment_replace":{"type":"boolean","default":true},"equipment_inventory":{"type":"boolean","default":true},"equipment_storage":{"type":"boolean","default":true},"combine_equipment":{"type":"boolean","default":true},"combine_equipment_min_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_equipment_min_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_equipment_max_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_equipment_max_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_equipment_priority":{"type":"number","default":1,"min":1,"max":10,"step":1},"combine_accessory":{"type":"boolean","default":true},"combine_accessory_min_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_accessory_min_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_accessory_max_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_accessory_max_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_accessory_priority":{"type":"number","default":1,"min":1,"max":10,"step":1},"combine_refinement":{"type":"boolean","default":true},"combine_refinement_min_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_refinement_min_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_refinement_max_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_refinement_max_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_refinement_priority":{"type":"number","default":1,"min":1,"max":10,"step":1},"combine_craft":{"type":"boolean","default":true},"combine_craft_min_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_craft_min_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_craft_max_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_craft_max_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"combine_craft_priority":{"type":"number","default":1,"min":1,"max":10,"step":1},"combine_use_storage":{"type":"boolean","default":true},"forge_use_storage":{"type":"boolean","default":true},"forge_tier_offset":{"type":"number","default":0,"min":0,"max":10,"step":1},"forge_min_need":{"type":"number","default":0,"min":0,"max":1000,"step":1},"recycle_equipment":{"type":"boolean","default":true},"recycle_accessory":{"type":"boolean","default":true},"recycle_retired":{"type":"boolean","default":true},"recycle_use_storage":{"type":"boolean","default":true},"recycle_min_grade":{"type":"number","default":1,"min":1,"max":4,"step":1},"recycle_max_grade":{"type":"number","default":4,"min":1,"max":4,"step":1},"refine_use_storage":{"type":"boolean","default":true},"refine_tradable_equipment":{"type":"boolean","default":true},"refine_min_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"refine_min_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"refine_max_grade":{"type":"number","default":0,"min":0,"max":100,"step":1},"refine_max_tier":{"type":"number","default":0,"min":0,"max":100,"step":1},"refine_material_order":{"type":"choice","default":"highest","options":[{"value":"highest","label":"品质高优先（现有策略）"},{"value":"lowest","label":"品质低优先"}]},"active_learn":{"type":"boolean","default":true},"active_upgrade":{"type":"boolean","default":true},"active_equip":{"type":"boolean","default":true},"passive_learn":{"type":"boolean","default":true},"passive_upgrade":{"type":"boolean","default":true},"rune_growth":{"type":"boolean","default":true},"rune_combat":{"type":"boolean","default":true},"rune_capacity":{"type":"boolean","default":true},"rune_utility":{"type":"boolean","default":true},"rune_offline":{"type":"boolean","default":true},"rune_learn":{"type":"boolean","default":true},"rune_upgrade":{"type":"boolean","default":true},"rune_max_level":{"type":"number","default":0,"min":0,"max":100000,"step":1},"rune_soul_cost_limit":{"type":"number","default":0,"min":0,"max":1000000000000,"step":1},"rune_premium_cost_limit":{"type":"number","default":0,"min":0,"max":1000000000000,"step":1},"unlock_characters":{"type":"boolean","default":true},"formation_fill":{"type":"boolean","default":true},"pet_unlock_enabled":{"type":"boolean","default":true},"pet_follow_enabled":{"type":"boolean","default":true},"storage_deposit":{"type":"boolean","default":true},"storage_withdraw":{"type":"boolean","default":true},"storage_swap":{"type":"boolean","default":true},"storage_withdraw_forge":{"type":"boolean","default":true},"storage_withdraw_combine":{"type":"boolean","default":true},"storage_withdraw_refine":{"type":"boolean","default":true},"storage_withdraw_recycle":{"type":"boolean","default":true},"sort_inventory":{"type":"boolean","default":true},"sort_storage":{"type":"boolean","default":true},"mail_claim_enabled":{"type":"boolean","default":true},"mail_close_enabled":{"type":"boolean","default":true},"offline_close_enabled":{"type":"boolean","default":true},"progress_push":{"type":"boolean","default":true},"progress_farm":{"type":"boolean","default":true},"progress_boss_tickets":{"type":"boolean","default":true},"progress_max_stage":{"type":"number","default":0,"min":0,"max":100000,"step":1},"tower_tickets":{"type":"boolean","default":true},"tower_max_level":{"type":"number","default":0,"min":0,"max":100000,"step":1},"cleanup_hero":{"type":"boolean","default":true},"cleanup_skills":{"type":"boolean","default":true},"cleanup_storage":{"type":"boolean","default":true},"cleanup_cube":{"type":"boolean","default":true},"cleanup_runes":{"type":"boolean","default":true},"recovery_empty":{"type":"boolean","default":true},"recovery_stall":{"type":"boolean","default":true},"launch_main":{"type":"boolean","default":true},"launch_sandbox":{"type":"boolean","default":true}};
+const tuningParts=['main_weapon','sub_weapon','helmet','armor','gloves','boots','accessory'];
+const tuningCategories=['equipment','accessory','refinement','craft'];
+function detailedStrategy(input){
+ const result={};
+ for(const [key,p] of Object.entries(detailedParameterRules)){
+  const v=input[key],valid=p.type==='boolean'?typeof v==='boolean':p.type==='choice'?p.options.some(o=>o.value===v):
+   typeof v==='number'&&Number.isFinite(v)&&v>=p.min&&v<=p.max&&(p.step!==1||Number.isInteger(v));
+  result[key]=valid?v:p.default;
+ }
+ return result;
+}
+function tuningRange(value,options,prefix,field){
+ const low=options[prefix+'_min_'+field]||0,high=options[prefix+'_max_'+field]||0;
+ return (!low&&!high)||Number.isFinite(value)&&(!low||value>=low)&&(!high||value<=high);
+}
+function tuningPart(options,prefix,slot){return options[prefix+'_part_'+tuningParts[Math.min(slot,6)]]!==false;}
+function fusionEntryAllowed(e,options){
+ const category=({1:0,2:0,4:1,16:2,8:3})[e.info.kind],prefix='combine_'+tuningCategories[category];
+ return category!==undefined&&options[prefix]!==false&&tuningRange(e.info.grade,options,prefix,'grade')&&tuningRange(e.info.tier,options,prefix,'tier');
+}
+function workshopStoredAllowed(options,purpose){
+ return options.modules?.storage!==false&&options.storage_withdraw!==false&&options['storage_withdraw_'+purpose]!==false&&options[(purpose==='recycle'?'recycle':purpose)+'_use_storage']!==false;
+}
+function runeGroup(header){
+ return isOfflineRuneHeader(header)?'offline':/InventorySlot|StorageTab|SquadSlot/.test(header)?'capacity':
+  /KillExpGain|KillGoods|NormalBoxDropRate|BossBoxDropRate/.test(header)?'growth':/Box|MoveSpeed|WaveSkip|ReviveHaste/.test(header)?'utility':'combat';
+}
+function runeAllowed(row,options={}){
+ return options['rune_'+runeGroup(row.header)]!==false&&options[row.level>0?'rune_upgrade':'rune_learn']!==false&&(!options.rune_max_level||row.level<options.rune_max_level);
+}
+function runeCostAllowed(goods,amount,options={}){
+ const limit=options[goods===201?'rune_soul_cost_limit':'rune_premium_cost_limit'];return !limit||amount<=limit;
+}
+function detailedActionAllowed(a,o){
+ const flags={unlock:'unlock_characters',formation:'formation_fill',pet_unlock:'pet_unlock_enabled',pet_equip:'pet_follow_enabled',mail_open:'mail_claim_enabled',mail_claim:'mail_claim_enabled',mail_close:'mail_close_enabled',offline_close:'offline_close_enabled',deposit:'storage_deposit'};
+ if(flags[a.kind])return o[flags[a.kind]]!==false;
+ if(a.kind==='box')return o['box_grade_'+a.grade]!==false;
+ if(a.kind==='withdraw'){
+  const purpose=({workshop:'refine',decompose:'recycle'}[a.purpose]||a.purpose);
+  if(o.storage_withdraw===false||a.swapUid&&o.storage_swap===false||o['storage_withdraw_'+purpose]===false||o[purpose+'_use_storage']===false)return false;
+  if(purpose==='combine'&&a.category!==undefined||purpose==='forge'&&a.part!==undefined||purpose==='refine'&&a.slot!==undefined)return detailedActionAllowed({...a,kind:purpose},o);
+  return true;
+ }
+ if(a.kind==='sort')return o.auto_sort_items!==false&&o[a.place==='inventory'?'sort_inventory':'sort_storage']!==false;
+ if(['skill_equip','skill_unequip'].includes(a.kind))return o.active_equip!==false;
+ if(['active','passive'].includes(a.kind))return o[a.kind+(a.level>0?'_upgrade':'_learn')]!==false;
+ if(['skill_refund','passive_refund'].includes(a.kind)){const p=a.kind==='skill_refund'?'active':'passive';return o[p+'_learn']!==false&&o[p+'_upgrade']!==false&&o['allow_'+p+'_refund']!==false;}
+ if(a.kind==='combine'){const p='combine_'+tuningCategories[a.category];return Number.isInteger(a.category)&&a.category>=0&&a.category<4&&o[p]!==false&&tuningRange(a.maxGrade,o,p,'grade')&&tuningRange(a.materialTier??a.tier,o,p,'tier');}
+ if(['equipment','refine','forge'].includes(a.kind)){
+  const slot=a.kind==='forge'?a.part-1:a.slot;if(!Number.isInteger(slot)||slot<0||!tuningPart(o,a.kind,slot))return false;
+  if(a.kind==='equipment')return o[a.empty?'equipment_fill_empty':'equipment_replace']!==false&&o[a.source==='storage'?'equipment_storage':'equipment_inventory']!==false;
+  if(a.kind==='refine'&&a.allowTradableTarget===true)return o.refine_tradable_equipment===true&&Number.isInteger(a.targetGrade)&&a.targetGrade>=1&&a.targetGrade<=7;
+ }
+ if(a.kind==='decompose')return !o.recycle_max_grade||a.maxGrade<=o.recycle_max_grade;
+ if(a.kind==='rune')return runeAllowed({header:a.header||'',level:a.level||0},o)&&runeCostAllowed(a.cost?.goods,a.cost?.amount||0,o);
+ if(a.kind==='progress'){
+  if(a.mode==='farm')return o.progress_farm!==false;
+  if(['push','boss'].includes(a.mode))return o.progress_push!==false&&(a.mode!=='boss'||o.progress_boss_tickets!==false)&&(!o.progress_max_stage||a.level<=o.progress_max_stage);
+ }
+ if(a.kind==='tower')return (o.tower_tickets!==false||a.ticket<=0)&&(!o.tower_max_level||a.level<=o.tower_max_level);
+ if(a.kind==='battle_recover')return o[a.reason==='stalled_end'?'recovery_stall':'recovery_empty']!==false;
+ return true;
+}
+
 function bridgeStrategy(input={}){
  input=input&&typeof input==='object'?input:{};
- const out={},numbers={farm_level_offset:[0,0,20],farm_candidate_count:[10,1,10],inventory_pressure_percent:[80,40,100],storage_pressure_percent:[80,40,100],recycle_pressure_max_grade:[4,1,4],sort_cooldown_seconds:[30,5,300],recycle_batch:[12,1,12],forge_priority_main_weapon:[1,1,7],forge_priority_accessory:[1,1,7],forge_priority_sub_weapon:[1,1,7],forge_priority_helmet:[1,1,7],forge_priority_armor:[1,1,7],forge_priority_gloves:[1,1,7],forge_priority_boots:[1,1,7],recycle_normal_tier_gap:[1,1,10],recycle_rare_tier_gap:[2,1,10],skill_point_reserve:[0,0,100],farm_retry_finish_seconds:[180,30,600],equipment_min_gain_percent:[0,0,100]};
+ const out=detailedStrategy(input),numbers={farm_level_offset:[0,0,20],farm_candidate_count:[10,1,10],inventory_pressure_percent:[80,40,100],storage_pressure_percent:[80,40,100],recycle_pressure_max_grade:[4,1,4],sort_cooldown_seconds:[30,5,300],recycle_batch:[12,1,12],forge_priority_main_weapon:[1,1,7],forge_priority_accessory:[1,1,7],forge_priority_sub_weapon:[1,1,7],forge_priority_helmet:[1,1,7],forge_priority_armor:[1,1,7],forge_priority_gloves:[1,1,7],forge_priority_boots:[1,1,7],recycle_normal_tier_gap:[1,1,10],recycle_rare_tier_gap:[2,1,10],skill_point_reserve:[0,0,100],farm_retry_finish_seconds:[180,30,600],equipment_min_gain_percent:[0,0,100]};
  for(const [key,[fallback,min,max]] of Object.entries(numbers))out[key]=typeof input[key]==='number'&&Number.isFinite(input[key])&&input[key]>=min&&input[key]<=max&&(key==='equipment_min_gain_percent'||Number.isInteger(input[key]))?input[key]:fallback;
  for(const key of ['recommended_actives','allow_active_refund','allow_passive_refund','recycle_pressure_cleanup','auto_sort_items'])out[key]=typeof input[key]==='boolean'?input[key]:true;
  out.preserve_open_panels=input.preserve_open_panels===true;
@@ -37,7 +104,7 @@ function bridgeStrategy(input={}){
  out.rune_priority=['growth','balanced','combat'].includes(input.rune_priority)?input.rune_priority:'growth';
   out.pet_mode=['auto','growth','combat','keep'].includes(input.pet_mode)?input.pet_mode:'auto';
   out.budget=input.budget&&typeof input.budget==='object'?input.budget:{};
-  out.modules=Object.fromEntries(['active','passive','combine','decompose','forge','refine','storage'].map(key=>[key,input.modules?.[key]!==false]));return out;
+  out.modules=Object.fromEntries(['active','passive','combine','decompose','forge','refine','storage','equipment'].map(key=>[key,input.modules?.[key]!==false]));return out;
 }
 function isOfflineRuneHeader(header){return typeof header==='string'&&header.startsWith('Offline');}
 function runeProgress(rows){
@@ -51,6 +118,13 @@ function runeProgress(rows){
   if(isOfflineRuneHeader(r.header)){
    result.offlineNodes++;result.offlineLearned+=r.level;result.offlineTotal+=r.max;if(r.level<r.max)result.offlineDeferred++;
   }else{result.onlineLearned+=r.level;result.onlineTotal+=r.max;}
+ }
+ // Capacity-only investment does not change a battle or its experience rate.
+ // Keep unknown effects and SquadSlot: either may affect the fighting party.
+ if(rows.every(r=>Number.isSafeInteger(r.id)&&r.id>0)&&new Set(rows.map(r=>r.id)).size===rows.length){
+  const nodes=rows.filter(r=>!isOfflineRuneHeader(r.header)&&!['InventorySlot','StorageTab'].includes(r.header))
+   .map(r=>[r.id,r.level]).sort((a,b)=>a[0]-b[0]);
+  result.battleScope={schema:1,policy:'online_without_storage_capacity',signature:JSON.stringify(nodes)};
  }
  return result;
 }
@@ -89,10 +163,11 @@ function materialQuantities(entries,count){
  for(const e of entries){const n=Math.min(e.info.count,remaining);if(n>0){quantities[e.info.uid]=n;remaining-=n;}}
  return quantities;
 }
-function fusionPlans(entries,recipes,cubeLevel,diagnostics=[]){
+function fusionPlans(entries,recipes,cubeLevel,diagnostics=[],options=bridgeStrategy()){
+ entries=entries.filter(e=>fusionEntryAllowed(e,options));
  const used=new Set(),plans=[];
  // Equipment/accessories accept an inclusive native recipe band; materials use exact tiers.
- for(const recipe of recipes.filter(r=>r.CraftType===0&&r.RequireCubeLevel<=cubeLevel&&r.FusionCount>0).sort((a,b)=>b.MinTier-a.MinTier||a.ID-b.ID)){
+ for(const recipe of recipes.filter(r=>r.CraftType===0&&r.RequireCubeLevel<=cubeLevel&&r.FusionCount>0).sort((a,b)=>(options['combine_'+tuningCategories[({0:0,1:1,3:2,4:3})[a.FusionType]]+'_priority']??1)-(options['combine_'+tuningCategories[({0:0,1:1,3:2,4:3})[b.FusionType]]+'_priority']??1)||b.MinTier-a.MinTier||a.ID-b.ID)){
   const category=({0:0,1:1,3:2,4:3})[recipe.FusionType];if(category===undefined)continue;
   const rows=entries.filter(e=>!used.has(e.info.uid)&&({1:0,2:0,4:1,16:2,8:3})[e.info.kind]===category&&e.info.grade===recipe.Grade&&
     (category<=1?e.info.tier>=recipe.MinTier&&e.info.tier<=recipe.MaxTier:e.info.tier===recipe.MinTier));
@@ -125,20 +200,24 @@ function stagingDeposit(held,needed,materials,retiring,full,recalls,equipping=ne
 function retirementPlans(entries,reserved,tier,options=bridgeStrategy(),underPressure=false){
  // Equipment useful to any managed character (including the next level) is excluded upstream.
  return entries.filter(e=>!reserved.has(e.info.uid)&&[1,2,4].includes(e.info.kind)&&
-  ((e.info.grade<=2&&e.info.tier<=tier-options.recycle_normal_tier_gap)||(e.info.grade<=4&&e.info.tier<=tier-options.recycle_rare_tier_gap)||
+  options[e.info.kind===4?'recycle_accessory':'recycle_equipment']!==false&&e.info.grade>=(options.recycle_min_grade??1)&&e.info.grade<=(options.recycle_max_grade??4)&&
+  ((options.recycle_retired!==false&&((e.info.grade<=2&&e.info.tier<=tier-options.recycle_normal_tier_gap)||(e.info.grade<=4&&e.info.tier<=tier-options.recycle_rare_tier_gap)))||
     (underPressure&&options.recycle_pressure_cleanup&&e.info.grade<=(options.recycle_pressure_max_grade??4)&&e.info.tier<=tier)))
   .sort((a,b)=>a.info.tier-b.info.tier||a.info.grade-b.info.grade||(a.place==='storage')-(b.place==='storage'));
 }
-function forgeNeed(im,characters,part,tier){
+function forgeNeed(im,characters,part,tier,tiers=[],minTier=tier){
  let best=0;
  for(const c of characters){
+  if(tiers.length&&(!Number.isSafeInteger(c.level)||c.level<1))continue;
+  const personalTier=tiers.length?Math.min(tier,tierForLevel(c.level,tiers)):tier;
+  if(personalTier<minTier)continue;
   const set=list(call(call(im,'GetEquipment',[c.id]),'get_Has'));
   const indexes=part===7?[6,7,8,9]:[part-1];
   for(const index of indexes){
    const p=set[index];if(protectedEquipped(im,p))continue;
    if(!p)best=Math.max(best,100);else{
-    const info=itemInfo(p);if(info.tier<tier)best=Math.max(best,20+(tier-info.tier)*5+6-info.grade);
-    else if(info.tier===tier&&info.grade<4)best=Math.max(best,4-info.grade);
+    const info=itemInfo(p);if(info.tier<personalTier)best=Math.max(best,20+(personalTier-info.tier)*5+6-info.grade);
+    else if(info.tier===personalTier&&info.grade<4)best=Math.max(best,4-info.grade);
    }
   }
  }return best;
@@ -221,15 +300,22 @@ function materialSupply(id,stock,cubeLevel,frontier,sources,reachable,combine=tr
 }
 function forgePlanning(im,characters,recipes,cubeLevel,tier,entries,all,options=bridgeStrategy(),context={}){
  const priorityKeys={1:'main_weapon',2:'sub_weapon',3:'helmet',4:'armor',5:'gloves',6:'boots',7:'accessory'};
- const stock=new Map(),held=new Map(),total=new Map(),combine=options.modules?.combine!==false;
- const reachable=combine?reachableCraftMaterials(context.sources,cubeLevel,context.frontier):new Map();
+ const stock=new Map(),held=new Map(),total=new Map(),combine=options.modules?.combine!==false&&options.combine_craft!==false;
+ tier=Math.max(1,tier-(options.forge_tier_offset||0));
+ const filteredSources=context.sources?.known?{...context.sources,materials:Object.fromEntries(Object.entries(context.sources.materials).map(([id,m])=>[id,{...m,fusion:m.fusion.filter(r=>{
+  const recipe=recipes.find(p=>p.ID===r.recipe);
+  // The supplied catalogue may contain forge rows only; native context includes all recipes.
+  const rule=(context.recipes||recipes).find(p=>p.ID===r.recipe)||recipe;
+  return rule?tuningRange(rule.Grade,options,'combine_craft','grade')&&tuningRange(rule.MinTier,options,'combine_craft','tier'):!(options.combine_craft_min_grade||options.combine_craft_max_grade||options.combine_craft_min_tier||options.combine_craft_max_tier);
+ })}]))}:context.sources;
+ const reachable=combine?reachableCraftMaterials(filteredSources,cubeLevel,context.frontier):new Map();
  for(const e of entries){stock.set(e.info.id,(stock.get(e.info.id)||0)+e.info.count);if(e.place==='inventory')held.set(e.info.id,(held.get(e.info.id)||0)+e.info.count);}
  for(const e of all)total.set(e.info.id,(total.get(e.info.id)||0)+e.info.count);
- const plans=recipes.filter(r=>r.CraftType===1&&r.RequireCubeLevel<=cubeLevel&&r.MinTier<=tier&&r.MaterialID.length&&r.MaterialID.every((id,i)=>id>0&&r.MaterialCount[i]>0))
-  .map(r=>({...r,need:forgeNeed(im,characters,r.CraftPart,Math.min(tier,r.MaxTier)),craftPriority:options['forge_priority_'+priorityKeys[r.CraftPart]]??7,
+ const plans=recipes.filter(r=>r.CraftType===1&&tuningPart(options,'forge',r.CraftPart-1)&&r.RequireCubeLevel<=cubeLevel&&r.MinTier<=tier&&r.MaterialID.length&&r.MaterialID.every((id,i)=>id>0&&r.MaterialCount[i]>0))
+  .map(r=>({...r,need:forgeNeed(im,characters,r.CraftPart,Math.min(tier,r.MaxTier),context.tiers,r.MinTier),craftPriority:options['forge_priority_'+priorityKeys[r.CraftPart]]??7,
    materials:r.MaterialID.map((id,i)=>({id,required:r.MaterialCount[i],available:stock.get(id)||0,inventory:held.get(id)||0,protected:(total.get(id)||0)-(stock.get(id)||0),
-    ...materialSupply(id,stock,cubeLevel,context.frontier,context.sources,reachable,combine)}))}))
-  .filter(r=>r.need>0).map(r=>{
+    ...materialSupply(id,stock,cubeLevel,context.frontier,filteredSources,reachable,combine)}))}))
+  .filter(r=>r.need>0&&r.need>=(options.forge_min_need||0)).map(r=>{
    const missing=r.materials.filter(m=>m.available<m.required),sourceRank=missing.length?Math.max(...missing.map(m=>m.rank)):-1;
    return {...r,complete:!missing.length,sourceRank,source:missing.length?missing.find(m=>m.rank===sourceRank).source:'inventory'};
   }).sort((a,b)=>Number(b.complete)-Number(a.complete)||a.sourceRank-b.sourceRank||a.craftPriority-b.craftPriority||b.MinTier-a.MinTier||b.need-a.need||a.ID-b.ID);
@@ -244,6 +330,36 @@ function forgePlanning(im,characters,recipes,cubeLevel,tier,entries,all,options=
   alternatives:plans.length-1,retainedParts:parts.size};
 }
 function managedEquipmentCharacters(characters,squad){const active=new Set((squad||[]).filter(id=>id>0).slice(0,3));return characters.filter(c=>active.has(c.id));}
+// Reserve one unit per planned append, rather than an entire material stack.
+// Synthesis may use only the surplus after every hero's reservation is counted.
+function refinementPlanning(im,characters,entries,options=bridgeStrategy()){
+ const attachments=entries.filter(e=>e.info.kind===16&&tuningRange(e.info.grade,options,'refine','grade')&&Number.isSafeInteger(e.info.count)&&e.info.count>0)
+  .sort((a,b)=>(options.refine_material_order==='lowest'?1:-1)*(a.info.grade-b.info.grade)||b.info.tier-a.info.tier||Number(a.place==='storage')-Number(b.place==='storage')||String(a.info.uid).localeCompare(String(b.info.uid)));
+ const reservations=new Map(),plans=[],assigned=new Set(),heroes=new Set(),candidates=[];let targets=0;
+ for(const c of characters){
+  const equipped=list(call(call(im,'GetEquipment',[c.id]),'get_Has'));
+  for(let slot=0;slot<equipped.length;slot++){
+   const target=equipped[slot];if(!target||!tuningPart(options,'refine',slot)||call(target,'get_IsLocked'))continue;
+   const info=itemInfo(target)||{},tradable=isTradable(target);
+   const allowTradableTarget=options.refine_tradable_equipment===true&&info.tradable===true&&info.confirmed===true&&info.count===1&&
+    [1,2,4].includes(info.kind)&&Number.isInteger(info.grade)&&info.grade>=1&&info.grade<=7;
+   if(tradable&&!allowTradableTarget)continue;
+   if((options.refine_min_tier||options.refine_max_tier)&&!tuningRange(info.tier,options,'refine','tier'))continue;
+   targets++;
+   candidates.push({id:c.id,target,slot,info,allowTradableTarget:tradable&&allowTradableTarget});
+  }
+ }
+ candidates.sort((a,b)=>(b.info.grade||0)-(a.info.grade||0)||(b.info.tier||0)-(a.info.tier||0));
+ for(const {id,target,slot,info,allowTradableTarget} of candidates){
+  if(heroes.has(id)||!attachments.length||assigned.has(call(target,'get_Uid')))continue;
+  const material=attachments.find(e=>(reservations.get(e.info.uid)||0)<e.info.count&&hasAttachmentSpace(im,target,e.item));
+  if(!material)continue;
+  reservations.set(material.info.uid,(reservations.get(material.info.uid)||0)+1);
+  plans.push({id,uid:call(target,'get_Uid'),slot,targetGrade:info.grade,allowTradableTarget,itemRevision:equipmentRevision(target),material});
+  assigned.add(call(target,'get_Uid'));heroes.add(id);
+ }
+ return {plans,reservations,targets};
+}
 function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const managed=managedEquipmentCharacters(s.characters,s.squad);
  const enabled={combine:true,decompose:true,forge:true,refine:true,storage:true,...options.modules};
@@ -258,7 +374,7 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  s.protection={tradable:tradable.length+protectedGear.length,rule:'equip_and_store_preserve_trade_attributes'};
  s.catalogue={normalMax:catalog.normalMax,towerMax:catalog.towerMax,characterMax:catalog.maxCharacterLevel,recipes:catalog.recipes.length,fusionRecipes:catalog.recipes.filter(r=>r.CraftType===0).length,forgeRecipes:catalog.recipes.filter(r=>r.CraftType===1).length};
  const needed=new Set();s.equipmentPlanning=[];
- const equipment=equipmentPlans(im,managed,s.squad,s.equipmentPlanning,needed,options.equipment_min_gain_percent);
+ const equipment=equipmentPlans(im,managed,s.squad,s.equipmentPlanning,needed,options.equipment_min_gain_percent,options);
  for(const c of s.characters)if(!managed.some(a=>a.id===c.id))s.equipmentPlanning.push({id:c.id,status:'not_arranged',planned:0,slotDetails:[]});
  for(const plan of equipment){needed.add(plan.uid);add('equipment','equip:'+plan.id+':'+plan.uid+':'+plan.slot,'为角色 '+plan.id+' 装备'+(plan.source==='storage'?'仓库':'背包')+'优选装备',99,plan);}
  const cube=call(im,'get_Cube'),cubeLevel=call(cube,'get_Level'),nativeCapacity=workshopCapacity('decompose');
@@ -266,16 +382,17 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const recycleLimit=Number.isSafeInteger(nativeCapacity)&&nativeCapacity>0?Math.min(options.recycle_batch,nativeCapacity):0;
  const candidates=safe.filter(e=>!needed.has(e.info.uid));
  const needItems=new Set(),forgeHolds=new Map(),readyItems=new Set(),recalls=[],free=s.inventory.capacity-s.inventory.count;
- const accessible=candidates.filter(e=>e.place==='inventory'||enabled.storage);let workshopReady=false;
- function recall(entries,reason,priority){
+ const accessible=candidates.filter(e=>e.place==='inventory'||enabled.storage&&options.storage_withdraw);let workshopReady=false;
+ function recall(entries,reason,priority,detail={}){
   for(const e of entries)needItems.add(e.info.uid);
+  const purpose=({'合成配方':'combine','锻造材料':'forge','精炼材料':'refine','淘汰装备回收':'recycle'})[reason];
   const item=entries.find(e=>e.place==='storage');
-   if(item&&enabled.storage)recalls.push({entries,priority,purpose:reason==='合成配方'?'combine':reason==='锻造材料'?'forge':'workshop'});
-   if(item&&free>0&&enabled.storage)add('withdraw','withdraw:'+item.info.uid+':'+stamp,'取用仓库物品 · '+reason,priority,{uid:item.info.uid,purpose:reason==='合成配方'?'combine':reason==='锻造材料'?'forge':'workshop'});
+   if(item&&enabled.storage)recalls.push({entries,priority,purpose,detail});
+   if(item&&free>0&&enabled.storage)add('withdraw','withdraw:'+item.info.uid+':'+stamp,'取用仓库物品 · '+reason,priority,{...detail,uid:item.info.uid,purpose});
  }
  const tier=tierForLevel(Math.max(1,...managed.map(c=>c.level)),catalog.tiers);
  const retireTier=managed.length?tierForLevel(Math.min(...managed.map(c=>c.level)),catalog.tiers):null;
- const forge=enabled.forge?forgePlanning(im,managed,catalog.recipes,cubeLevel,tier,accessible,all,options,{sources:catalog.materialSources,frontier:s.record?.maxCleared}):null;
+ const forge=enabled.forge?forgePlanning(im,managed,catalog.recipes,cubeLevel,tier,accessible.filter(e=>e.place==='inventory'||workshopStoredAllowed(options,'forge')),all,options,{sources:catalog.materialSources,frontier:s.record?.maxCleared,tiers:catalog.tiers}):null;
  s.forging={status:!enabled.forge?'disabled':forge?'materials_missing':'no_need',cubeLevel,tier,recipe:forge?.ID??null,part:forge?.CraftPart??null,priority:forge?.craftPriority??null,materials:forge?.materials||[],source:forge?.source??null,sourceKnown:forge?.sourceKnown??false,retainedParts:forge?.retainedParts??0,alternatives:forge?.alternatives??0,ready:false};
  if(forge){
   s.forging.minLevel=catalog.tiers.find(t=>t.tier===forge.MinTier)?.min;
@@ -290,42 +407,87 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
   const ready=forge.complete&&forge.materials.every(m=>m.inventory>=m.required);
   s.forging.ready=ready;s.forging.status=ready?'ready':forge.complete?'storage_pending':'materials_missing';
   if(ready){workshopReady=true;materials.forEach(e=>readyItems.add(e.info.uid));
-   add('forge','forge:'+forge.ID+':'+forge.MinTier+':'+materials.map(e=>e.info.uid+':'+e.info.count).join(','),'锻造可用配方范围内的成长装备',109,{recipe:forge.ID,part:forge.CraftPart,tier:forge.MinTier,allowed:materials.filter(e=>e.place==='inventory'&&forge.MaterialID.includes(e.info.id)).map(e=>e.info.uid)});
-  }else if(forge.complete)recall(materials.filter(e=>forge.MaterialID.includes(e.info.id)),'锻造材料',109);
+   const materialCounts={};
+   for(const m of forge.materials)Object.assign(materialCounts,materialQuantities(materialBatch(materials.filter(e=>e.place==='inventory'&&e.info.id===m.id),m.required),m.required));
+   const allowed=Object.keys(materialCounts),batchSize=Object.values(materialCounts).reduce((n,count)=>n+count,0);
+   add('forge','forge:'+forge.ID+':'+forge.MinTier+':'+allowed.map(uid=>uid+':'+materialCounts[uid]).join(','),'锻造可用配方范围内的成长装备',109,
+    {recipe:forge.ID,part:forge.CraftPart,tier:forge.MinTier,allowed,materialCounts,batchSize});
+  }else if(forge.complete)recall(materials.filter(e=>forge.MaterialID.includes(e.info.id)),'锻造材料',109,{part:forge.CraftPart});
  }
- const attachments=accessible.filter(e=>e.info.kind===16&&!needItems.has(e.info.uid));
- for(const c of enabled.refine?managed:[]){
-  const equipped=list(call(call(im,'GetEquipment',[c.id]),'get_Has')).filter(p=>p&&!isTradable(p)&&!call(p,'get_IsLocked'));
-   const target=equipped.find(p=>attachments.some(e=>!needItems.has(e.info.uid)&&hasAttachmentSpace(im,p,e.item)));
-  if(!target)continue;
-   const materials=attachments.filter(e=>!needItems.has(e.info.uid)&&hasAttachmentSpace(im,target,e.item)).sort((a,b)=>b.info.grade-a.info.grade||b.info.tier-a.info.tier).slice(0,1),current=materials.filter(e=>e.place==='inventory');
-  for(const e of materials)needItems.add(e.info.uid);
-   if(current.length)workshopReady=true;current.forEach(e=>readyItems.add(e.info.uid));
-  if(current.length)add('refine','refine:'+call(target,'get_Uid')+':'+list(call(target,'get_Sockets')).length+':'+stamp,'为角色 '+c.id+' 镶嵌可用材料',90,{id:c.id,uid:call(target,'get_Uid'),allowed:current.map(e=>e.info.uid)});
-  else recall(materials,'装备镶嵌',91);
+ // Preserve complete refining-material synthesis batches before filling equipment.
+ // An append must never turn nine compatible materials into an unusable eight.
+ const synthesisHolds=new Map();
+ const synthesisInputs=accessible.flatMap(e=>{
+  if(e.info.kind!==16||e.place==='storage'&&!workshopStoredAllowed(options,'combine'))return [];
+  if(!needItems.has(e.info.uid))return [e];
+  if(!forge||forge.complete||!forgeHolds.has(e.info.uid))return [];
+  const count=e.info.count-forgeHolds.get(e.info.uid);return count>0?[{...e,info:{...e.info,count}}]:[];
+ });
+ if(enabled.combine)for(const group of fusionPlans(synthesisInputs,catalog.recipes,cubeLevel,[],options)){
+  const matching=synthesisInputs.filter(e=>e.info.grade===group.grade&&e.info.tier===group.recipe.MinTier)
+   .map(e=>({...e,info:{...e.info,count:e.info.count-(synthesisHolds.get(e.info.uid)||0)}})).filter(e=>e.info.count>0);
+  const count=Math.floor(matching.reduce((n,e)=>n+e.info.count,0)/group.recipe.FusionCount)*group.recipe.FusionCount;
+  for(const [uid,quantity] of Object.entries(materialQuantities(materialBatch(matching,count),count)))
+   synthesisHolds.set(uid,(synthesisHolds.get(uid)||0)+quantity);
+ }
+ const appendInputs=accessible.flatMap(e=>{
+  if(e.place==='storage'&&!workshopStoredAllowed(options,'refine'))return [];
+  if(needItems.has(e.info.uid))return [];
+  const count=e.info.count-(synthesisHolds.get(e.info.uid)||0);return count>0?[{...e,info:{...e.info,count}}]:[];
+ });
+ const refining=enabled.refine?refinementPlanning(im,managed,appendInputs,options):{plans:[],reservations:new Map(),targets:0};
+ const refineReady=refining.plans.filter(p=>p.material.place==='inventory').length;
+ s.refining={status:!enabled.refine?'disabled':refineReady?'ready':refining.plans.length?'storage_pending':refining.targets?'no_match':'no_target',
+  targets:refining.targets,planned:refining.plans.length,ready:refineReady,warehousePending:refining.plans.length-refineReady,
+  reservedMaterials:[...refining.reservations.values()].reduce((n,count)=>n+count,0),
+  availableMaterials:accessible.filter(e=>e.info.kind===16).reduce((n,e)=>n+e.info.count,0),
+  protectedMaterials:all.filter(e=>e.info.kind===16&&!e.consumable).reduce((n,e)=>n+e.info.count,0)};
+ for(const plan of refining.plans){
+  const e=plan.material;needItems.add(e.info.uid);
+  if(e.place==='inventory'){
+   workshopReady=true;readyItems.add(e.info.uid);
+   // Inventory churn must not give an uncertain append a fresh submission key.
+   add('refine','refine:'+plan.uid+':'+keyHash(plan.itemRevision),'为角色 '+plan.id+' 装入精炼材料',90,
+    {id:plan.id,uid:plan.uid,slot:plan.slot,targetGrade:plan.targetGrade,allowTradableTarget:plan.allowTradableTarget,itemRevision:plan.itemRevision,allowed:[e.info.uid],materialCounts:{[e.info.uid]:1},batchSize:1});
+  }else recall([e],'精炼材料',91,{slot:plan.slot});
  }
  // Ready forging owns its stacks. Only an incomplete forge can release surplus units to synthesis.
  const fusionDiagnostics=[];
  const fusionMaterials=accessible.flatMap(e=>{
+  if(e.place==='storage'&&!workshopStoredAllowed(options,'combine'))return [];
   if(!needItems.has(e.info.uid))return [e];
-  if(!forge||forge.complete||!forgeHolds.has(e.info.uid))return [];
-  const count=e.info.count-forgeHolds.get(e.info.uid);
+  const refineHeld=refining.reservations.get(e.info.uid)||0;
+  if(!refineHeld&&(!forge||forge.complete||!forgeHolds.has(e.info.uid)))return [];
+  const count=e.info.count-(forgeHolds.get(e.info.uid)||0)-refineHeld;
   return count>0?[{...e,info:{...e.info,count}}]:[];
  });
- const combineGroups=enabled.combine?fusionPlans(fusionMaterials,catalog.recipes,cubeLevel,fusionDiagnostics):[];
+ const combineGroups=enabled.combine?fusionPlans(fusionMaterials,catalog.recipes,cubeLevel,fusionDiagnostics,options):[];
  for(const plan of combineGroups)for(const e of plan.entries)needItems.add(e.info.uid);
  const tasks=fusionTasks(combineGroups,free);
  s.combining={status:!enabled.combine?'disabled':tasks.length?'planned':'materials_missing',waitingGroups:fusionDiagnostics.filter(p=>!p.ready).length,nearest:fusionDiagnostics.filter(p=>!p.ready).sort((a,b)=>(a.required-a.available)-(b.required-b.available)||b.minTier-a.minTier).slice(0,3),groups:tasks.length,ready:tasks.filter(t=>t.ready).length,warehousePending:tasks.filter(t=>!t.ready).length,needSpace:free<=0&&tasks.some(t=>!t.ready),
    warehouseMaterials:accessible.filter(e=>e.place==='storage'&&[8,16].includes(e.info.kind)).reduce((n,e)=>n+e.info.count,0)};
+ const materialTasks=tasks.filter(t=>t.group.category===2),materialWaiting=fusionDiagnostics.filter(p=>p.category===2&&!p.ready);
+ const materialStock=accessible.filter(e=>e.info.kind===16),materialCount=materialStock.reduce((n,e)=>n+e.info.count,0);
+ const lockedMaterialRecipes=enabled.combine?catalog.recipes.filter(r=>r.CraftType===0&&r.FusionType===3&&r.RequireCubeLevel>cubeLevel&&
+  materialStock.some(e=>e.info.tier===r.MinTier&&e.info.grade===r.Grade)).length:0;
+ s.combining.refinementMaterials={status:!enabled.combine||!options.combine_refinement?'disabled':materialTasks.some(t=>t.ready)?'ready':materialTasks.length?'storage_pending':
+  lockedMaterialRecipes&&!materialWaiting.length?'native_locked':materialCount?'materials_missing':'no_materials',
+  available:materialCount,inventory:materialStock.filter(e=>e.place==='inventory').reduce((n,e)=>n+e.info.count,0),
+  warehouse:all.filter(e=>e.info.kind===16&&e.consumable&&e.place==='storage').reduce((n,e)=>n+e.info.count,0),
+  storageEnabled:enabled.storage,protected:all.filter(e=>e.info.kind===16&&!e.consumable).reduce((n,e)=>n+e.info.count,0),
+  reservedForSynthesis:[...synthesisHolds.values()].reduce((n,count)=>n+count,0),reservedForEquipment:s.refining.reservedMaterials,
+  groups:materialTasks.length,ready:materialTasks.filter(t=>t.ready).length,warehousePending:materialTasks.filter(t=>!t.ready).length,
+  lockedRecipes:lockedMaterialRecipes,nearest:materialWaiting.sort((a,b)=>(a.required-a.available)-(b.required-b.available)||b.grade-a.grade).slice(0,3)};
  for(const {group,current,ready} of tasks){
    if(ready)current.forEach(e=>readyItems.add(e.info.uid));
-   if(ready)add('combine','combine:'+group.recipe.ID+':'+current.map(e=>e.info.uid+':'+e.info.count).join(','),'优先合成闲置材料并释放空间',108,
+   if(ready)add('combine','combine:'+group.recipe.ID+':'+current.map(e=>e.info.uid+':'+e.info.count).join(','),group.category===2?'合成精炼材料，按原生配方提升品质':'优先合成闲置材料并释放空间',108,
     {recipe:group.recipe.ID,category:group.category,tier:group.recipe.MinTier,materialTier:group.tier,materialMinTier:group.materialMinTier,materialMaxTier:group.materialMaxTier,maxGrade:group.grade,allowed:current.map(e=>e.info.uid),materialCounts:materialQuantities(current,group.recipe.FusionCount),batchSize:group.recipe.FusionCount});
-   else recall(group.entries,'合成配方',107);
+   else recall(group.entries,'合成配方',107,{category:group.category,materialTier:group.tier,tier:group.recipe.MinTier,maxGrade:group.grade});
  }
- const pressure=s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100,full=free<=0,storageFull=call(storage,'get_IsFull');
+ const relief=inventorySpaceRelief(s,options);
+ const pressure=relief.active||s.inventory.count>=s.inventory.capacity*options.inventory_pressure_percent/100,full=free<=0,storageFull=call(storage,'get_IsFull');
  const storagePressure=enabled.storage&&(s.storage.pressure||storageFull);
- const obsolete=enabled.decompose&&managed.length?retirementPlans(all.filter(e=>canRecycleItem(im,e.item,options.recycle_socketed_equipment)&&(e.place==='inventory'||enabled.storage)),new Set([...needed,...needItems]),retireTier,options,pressure||storagePressure):[];
+ const obsolete=enabled.decompose&&managed.length?retirementPlans(all.filter(e=>canRecycleItem(im,e.item,options.recycle_socketed_equipment)&&(e.place==='inventory'||workshopStoredAllowed(options,'recycle'))),new Set([...needed,...needItems]),retireTier,options,pressure||storagePressure):[];
  const materialCounts=materialQuantities(obsolete.filter(e=>e.place==='inventory').slice(0,recycleLimit),recycleLimit);
  const reclaim=obsolete.filter(e=>materialCounts[e.info.uid]>0),batchSize=Object.values(materialCounts).reduce((n,count)=>n+count,0);
  s.recycling={pressureCleanup:options.recycle_pressure_cleanup&&(pressure||storagePressure),reservedEquipment:needed.size,obsolete:obsolete.length,inventory:obsolete.filter(e=>e.place==='inventory').length,storage:obsolete.filter(e=>e.place==='storage').length,planned:batchSize,nativeCapacity:recycleLimit?nativeCapacity:null,batchLimit:recycleLimit,socketedAllowed:options.recycle_socketed_equipment,locked:all.filter(e=>[1,2,4].includes(e.info.kind)&&e.info.locked).length,socketedRetained:all.filter(e=>[1,2,4].includes(e.info.kind)&&e.info.sockets>0&&!options.recycle_socketed_equipment).length,highGradeRetained:all.filter(e=>[1,2,4].includes(e.info.kind)&&e.info.grade>=5).length,retireTier,policy:'roster_upgrades_then_fusion_then_retirement'};
@@ -336,22 +498,33 @@ function inventoryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const retiring=new Set(obsolete.map(e=>e.info.uid)),equipping=new Set(equipment.map(p=>p.uid)),movableHeld=movable.filter(e=>e.place==='inventory');
  const consumeReady=workshopReady||tasks.some(t=>t.ready)||reclaim.length>0;
  let stash=null,swap=null;
- if(enabled.storage&&pressure&&!storageFull){
-  stash=stagingDeposit(movableHeld,needed,needItems,retiring,full,recalls,equipping,readyItems);
+ if(enabled.storage&&options.storage_deposit&&pressure&&!storageFull){
+  // A relief cycle can stage future ingredients too. Keeping an incomplete
+  // recipe in the bag must not stop cleanup before its low-water target.
+  stash=stagingDeposit(movableHeld,needed,needItems,retiring,full||relief.active,recalls,equipping,readyItems);
   if(stash)add('deposit','deposit:'+stash.info.uid+':'+stamp,full?'背包已满，临时存仓以接续取料和开箱':'自动存仓，预留战利品空间',full&&recalls.length&&!consumeReady?105:101,{uid:stash.info.uid});
  }
  // A native slot exchange can bring recipe materials in even when both containers are full.
- if(enabled.storage&&full&&storageFull&&!consumeReady){
+ if(enabled.storage&&options.storage_swap&&full&&storageFull&&!consumeReady){
   const target=[...recalls].sort((a,b)=>b.priority-a.priority)[0],stored=target?.entries.find(e=>e.place==='storage');
   swap=stored&&stagingDeposit(movableHeld,needed,needItems,retiring,true,[target],equipping,readyItems);
-  if(swap)add('withdraw','withdraw:'+stored.info.uid+':swap:'+swap.info.uid+':'+stamp,'背包与仓库已满，交换闲置物品以取用材料',target.priority,{uid:stored.info.uid,swapUid:swap.info.uid,purpose:target.purpose});
+  if(swap)add('withdraw','withdraw:'+stored.info.uid+':swap:'+swap.info.uid+':'+stamp,'背包与仓库已满，交换闲置物品以取用材料',target.priority,{...target.detail,uid:stored.info.uid,swapUid:swap.info.uid,purpose:target.purpose});
  }
  const blocked=full&&!stash&&!swap&&!consumeReady&&!equipment.length;
- s.inventoryFlow={recipeReserved:needItems.size,movable:movable.length,consumable:safe.length,protectedMaterials:all.filter(e=>!e.consumable&&!canRecycleItem(im,e.item,options.recycle_socketed_equipment)).length,blockedTransfers:all.length-movable.length,reservedEquipment:needed.size,storageFull,staging:!!stash,swapping:!!swap,blocked};
- if(blocked)issues.push(storageFull?'背包与仓库已满：没有可安全整理的组合，保留受保护物品并等待配方或容量条件':'背包已满：没有可安全转仓的闲置物品，等待装备、配方或扩容条件');
- else if(full)issues.push('背包已满，正在安排存仓、合成、回收与扩容');
+ s.inventoryFlow={recipeReserved:needItems.size,movable:movable.length,consumable:safe.length,protectedMaterials:all.filter(e=>!e.consumable&&!canRecycleItem(im,e.item,options.recycle_socketed_equipment)).length,blockedTransfers:all.length-movable.length,reservedEquipment:needed.size,storageFull,staging:!!stash,swapping:!!swap,blocked,relief};
+ if(blocked)issues.push(storageFull?'背包与仓库已满：当前无可执行整理组合，等待配方材料或容量变化':'背包已满：暂无可转仓物品，等待装备、配方或扩容条件');
+ else if(full)issues.push('背包已满（'+s.inventory.count+'/'+s.inventory.capacity+'格），正在安排存仓、合成、回收与扩容');
  s.inventoryFlow.waitingConditions=candidates.filter(e=>!needItems.has(e.info.uid)&&!retiring.has(e.info.uid)).length;
  s.inventoryFlow.recipeReserved=needItems.size;
+ // Missing ingredients may come from boxes themselves. A complete inventory
+ // scan with no safe cleanup route permits ONE current box, within hard free
+ // slots and the player's reserve, then reevaluates changed occupancy.
+ const cycle=inventoryReliefCycles.get(s.account||'');
+ if(cycle){
+  const noRoute=relief.active&&!consumeReady&&!stash&&!swap&&!(recalls.length&&free>0)&&!equipment.length;
+  if(noRoute)cycle.blockedAt=s.inventory.count;else delete cycle.blockedAt;
+  relief.blocked=noRoute;
+ }
 }
 // Only the native maintenance handler can authorize the game's own exit callback.
 // Never infer maintenance or confirm an arbitrary dialog from its displayed text.
@@ -377,11 +550,13 @@ function maintenanceStatus(){
 function openPopups(){return list(invoke(external('UnityEngine','Resources'),nil,'FindObjectsOfTypeAll',[ref(typeObject(classType(klass('DG.UI.OutGamePopup'))))],'System.Type')).filter(p=>call(call(p,'get_gameObject'),'get_activeInHierarchy'));}
 const cleanupPopupTypes=new Set(['DG.UI.Popup.HeroPopup','DG.UI.Popup.HeroInfoPopup','DG.UI.Popup.SkillTreePopup','DG.UI.Popup.StoragePopup','DG.UI.Popup.CubePopup','DG.UI.Rune.RuneTreePopup']);
 // Keep inspection windows open; only suspend actions that can change their contents.
-function popupPolicy(open,preserveOpenPanels=true,pauseOnManualPanels=false){
+function popupPolicy(open,preserveOpenPanels=true,pauseOnManualPanels=false,options={}){
+ const category={HeroPopup:'hero',HeroInfoPopup:'hero',SkillTreePopup:'skills',StoragePopup:'storage',CubePopup:'cube',RuneTreePopup:'runes'};
+ const retain=name=>preserveOpenPanels||options['cleanup_'+category[name.split('.').pop()]]===false;
  const known=new Set([...cleanupPopupTypes,'DG.UI.Popup.MailPopup','DG.UI.Popup.TradePopup','DG.UI.Popup.SteamInventoryPopup','DG.UI.Popup.OfflineRewardPopup']);
- const manual=preserveOpenPanels?open.filter(name=>cleanupPopupTypes.has(name)):[];
+ const manual=open.filter(name=>cleanupPopupTypes.has(name)&&retain(name));
  const blocked=open.filter(name=>!known.has(name)||pauseOnManualPanels&&manual.includes(name));
- return {blocked,manual,cleanup:blocked.length||preserveOpenPanels?null:open.find(name=>cleanupPopupTypes.has(name))||null,
+ return {blocked,manual,cleanup:blocked.length?null:open.find(name=>cleanupPopupTypes.has(name)&&!retain(name))||null,
   offline:!blocked.length&&!manual.length&&open.includes('DG.UI.Popup.OfflineRewardPopup')};
 }
 function panelActionBlocked(kind,panels=[]){
@@ -451,15 +626,69 @@ function planPetFollower(rows,current,mode='auto'){
  });
  return ordered[0]?.id??null;
 }
-function boxOpportunities(s,drop,add){
+const inventoryReliefCycles=new Map();
+function inventorySpaceRelief(s,options=bridgeStrategy()){
+ const {count,capacity}=s.inventory,modules=options.modules||{},key=s.account||'';
+ const enabled=modules.storage!==false&&options.storage_deposit||modules.combine!==false&&tuningCategories.some(k=>options['combine_'+k])||
+  modules.decompose!==false&&(options.recycle_equipment||options.recycle_accessory)&&(options.recycle_retired||options.recycle_pressure_cleanup)||modules.forge!==false;
+ if(!Number.isSafeInteger(count)||!Number.isSafeInteger(capacity)||count<0||capacity<=0)return {active:false};
+ const high=Math.max(1,Math.floor(capacity*options.inventory_pressure_percent/100));
+ const low=Math.max(0,high-Math.max(1,Math.min(options.box_batch_limit,Math.max(2,Math.ceil(capacity/10)))));
+ const previous=inventoryReliefCycles.get(key);
+ const policy=JSON.stringify(options);
+ const blockedAt=previous?.capacity===capacity&&previous.high===high&&previous.policy===policy?previous.blockedAt:undefined;
+ const active=!!(enabled&&(count>=high||previous?.active&&previous.capacity===capacity&&previous.high===high&&count>low));
+ inventoryReliefCycles.set(key,{active,capacity,high,policy,blockedAt});
+ return {active,high,low,capacity,enabled:!!enabled,blocked:active&&blockedAt===count};
+}
+function boxOpportunities(s,drop,add,options=bridgeStrategy()){
  const counts=[0,1,2].map(grade=>call(drop,'Count',[grade]));
  s.boxes={counts,total:counts.reduce((n,count)=>n+count,0),freeSlots:Math.max(0,s.inventory.capacity-s.inventory.count)};
- for(const [grade,count] of counts.entries())if(count>0&&s.boxes.freeSlots>0)
+ s.boxes.openableSlots=Math.max(0,s.boxes.freeSlots-options.box_free_slots);
+ s.boxes.relief=inventorySpaceRelief(s,options);
+ if(s.boxes.relief.blocked)s.boxes.openableSlots=Math.min(s.boxes.openableSlots,1);
+ else{
+  if(s.boxes.relief.enabled)s.boxes.openableSlots=Math.min(s.boxes.openableSlots,Math.max(0,s.boxes.relief.high-s.inventory.count));
+  if(s.boxes.relief.active)s.boxes.openableSlots=0;
+ }
+ s.boxes.enabledGrades=counts.map((_,g)=>options['box_grade_'+g]);
+ for(const [grade,count] of counts.entries())if(count>0&&s.boxes.openableSlots>0&&s.boxes.enabledGrades[grade])
   add('box','box:'+grade+':'+s.record.boxes,'开启战利品宝箱',99,{grade,count});
+}
+// Publish a section's snapshot changes and actions only after its entire read succeeds.
+// The workshop stays one transaction: partial reservations must never reach dispatch.
+function copyPlanningValue(value){
+ if(Array.isArray(value))return value.map(copyPlanningValue);
+ if(value&&typeof value==='object'&&typeof value.isNull!=='function')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,copyPlanningValue(v)]));
+ return value;
+}
+function collectOpportunitySection(s,add,issues,name,fn,dependencies=[]){
+ const labels={characters:'角色与技能',boxes:'宝箱',workshop:'装备与工坊',sorting:'物品排序',runes:'刻印',pets:'宠物',achievements:'成就',equipment:'当前装备',mail:'邮件',tower:'无限塔',auxiliary:'窗口与接续',progression:'主线规划',recovery:'战场恢复'};
+ const missing=dependencies.find(k=>s.planningUnavailable?.[k]);
+ if(missing){s.planningUnavailable={...s.planningUnavailable,[name]:'dependency_unavailable:'+missing};return false;}
+ // Sections replace root fields. Only skills and tower modify pre-existing nested data.
+ const draft={...s},pending=[],messages=[];
+ if(name==='characters')draft.characters=copyPlanningValue(s.characters);
+ if(name==='tower')draft.stage={...s.stage};
+ try{
+  fn(draft,(...args)=>pending.push(args),messages);
+ }catch(error){
+  const reason=String(error?.message||error).replace(/[\r\n\t]/g,' ').slice(0,240);
+  s.planningUnavailable={...s.planningUnavailable,[name]:reason};
+  issues.push((labels[name]||name)+'读取暂不可用，稍后重试；其他独立模块继续');
+  return false;
+ }
+ Object.assign(s,draft);pending.forEach(args=>add(...args));issues.push(...messages);return true;
+}
+function planningStrengthAvailable(s){
+ return !['characters','workshop','runes','pets','equipment','progression'].some(k=>s.planningUnavailable?.[k]);
+}
+function planningActionAllowed(s,a){
+ return planningStrengthAvailable(s)||!(a.kind==='equipment'||a.kind==='tower'||a.kind==='progress'&&(['push','boss'].includes(a.mode)||a.mode==='farm'&&a.phase==='travel')||a.kind==='battle_recover'&&a.mode==='stage'&&a.level!==s.stage?.level);
 }
 function auxiliaryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const popups=openPopups(),open=popups.map(p=>fullname(A.objectClass(p)));
- const policy=popupPolicy(open,options.preserve_open_panels,options.pause_on_manual_panels);s.automationBlocked=policy.blocked;
+ const policy=popupPolicy(open,options.preserve_open_panels,options.pause_on_manual_panels,options);s.automationBlocked=policy.blocked;
  s.manualPanels=policy.manual;s.manualPanelOpen=policy.manual.length>0;
  s.manualBlockedKinds=['box','equipment','active','passive','skill_equip','skill_refund','passive_refund','skill_unequip','unlock','rune','combine','decompose','forge','refine','deposit','withdraw','sort','tower','tower_return','progress','battle_recover','formation','mail_open','mail_close','mail_claim','offline_close'].filter(kind=>panelActionBlocked(kind,policy.manual));
  if(s.manualPanelOpen&&!policy.blocked.length)issues.push('手动窗口已保留：不冲突的成长继续，窗口内物品与切场操作等待关闭后恢复');
@@ -477,6 +706,7 @@ function auxiliaryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const offline=popups.find(p=>fullname(A.objectClass(p))==='DG.UI.Popup.OfflineRewardPopup');
  if(policy.offline&&offline&&!read(offline,'_opening'))add('offline_close','offline_close','完成离线收益展示，接续游戏加载',115);
  if(ordinary&&call(call(im,'get_Cube'),'get_IsEmpty')&&!call(call(im,'get_Input'),'get_IsHolding'))add('ui_cleanup','close:'+fullname(A.objectClass(ordinary)),'收起面板，接续自动成长',110,{type:fullname(A.objectClass(ordinary))});
+ collectOpportunitySection(s,add,issues,'mail',(s,add)=>{
  const server=single('DG.Network.ServerManager'),unread=call(server,'get_MailUnreadCount'),mail=sceneObject('DG.UI.Popup.MailPopup');
  s.mail={unread,loading:mail?read(mail,'_isLoading'):false,claiming:mail?read(mail,'_isClaiming'):false,claims:mailClaimObservation()};
  if(mail&&!trade&&s.inventory.count<s.inventory.capacity){
@@ -488,10 +718,13 @@ function auxiliaryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
    else if(!mails.length)add('mail_close','mail_close','收起已处理的邮箱',76);
   }
  }
- const gm=single('DG.Manager.GameManager'),tower=nextTowerLevel(s.record,s.catalogue.towerMax);
+ });
+ collectOpportunitySection(s,add,issues,'tower',(s,add,issues)=>{
+ const gm=single('DG.Manager.GameManager'),towerMax=s.catalogue?.towerMax;
+ const tower=Number.isInteger(towerMax)?nextTowerLevel(s.record,towerMax):null;
  const repeatGuard=towerRepeatGuard(s.stage);
  if(repeatGuard)add('progress','tower_repeat_off','无限塔单次挑战，关闭继承的重复开关',131,repeatGuard);
- s.tower={level:tower,max:s.catalogue.towerMax,cleared:s.record.towerMaxCleared,complete:s.record.towerMaxCleared>=s.catalogue.towerMax};
+ if(Number.isInteger(towerMax))s.tower={level:tower,max:towerMax,cleared:s.record.towerMaxCleared,complete:s.record.towerMaxCleared>=towerMax};
  const ending=call(gm,'IsStageEnding');
  s.stage.ending=ending;
  if(s.stage.category===1&&!s.stage.running&&ending){
@@ -501,11 +734,12 @@ function auxiliaryOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  }
  if(s.stage.category===0&&s.stage.running===false&&ending&&Number.isInteger(s.stage.level)&&
     Number.isInteger(s.record.maxCleared)&&s.stage.level<=s.record.maxCleared&&
-    Number.isInteger(s.catalogue.normalMax)&&s.catalogue.normalMax>0&&s.record.maxCleared>=s.catalogue.normalMax&&
+    Number.isInteger(s.catalogue?.normalMax)&&s.catalogue.normalMax>0&&s.record.maxCleared>=s.catalogue.normalMax&&
     call(gm,'GetRequireItemID',[0,s.stage.level])<=0&&tower>0&&tower<=s.catalogue.towerMax&&call(gm,'CanEnterStage',[1,tower])){
   const ticket=call(gm,'GetRequireItemID',[1,tower]),target=ticket>0?call(im,'FindOccupyTarget',[ticket]):null;
   if(ticket<=0||(target&&!protectedItem(im,target)))add('tower','tower:'+tower+':'+(target?call(target,'get_Uid'):'free'),'挑战无限塔第 '+tower+' 层',79,{level:tower,ticket,freeEntry:ticket<=0,clearedBefore:s.record.towerMaxCleared});
  }
+ });
 }
 
 function entranceStatus(gm,im,category,level){
@@ -522,6 +756,14 @@ function entranceStatus(gm,im,category,level){
   !call(im,'IsEquipped',[ref(target)])&&list(call(im,'FindRegistrations',[ref(target)])).length===0;
  return {level,ticket,safe:approved,uid:info.uid,count:info.count,consumeOnClear:approved,
   reason:approved?'boss_entry_ticket':info.tradable?'protected_ticket':'unavailable_ticket'};
+}
+const stageEntryObserver=Date.now().toString(36)+':'+Math.random().toString(36).slice(2);
+function stageEntryState(s){
+ try{
+  const gm=single(names.game),im=single(names.items),occupied=read(im,'_occupied');
+  return {known:true,observer:stageEntryObserver,sequence:read(gm,'_enterSequence'),
+   occupied:!occupied.isNull(),free:call(gm,'GetRequireItemID',[s.stage.category,s.stage.level])<=0};
+ }catch(error){return {known:false,reason:'native_entry_state_unavailable'};}
 }
 function battleReadiness(s){
  try{
@@ -542,7 +784,7 @@ function battleRecoveryCase(s){
  if(!r.missing.length&&r.arrangedCount>0&&stage.running===false&&stage.wave>0&&stage.aliveMonsters===0&&r.pendingSpawn===false)return 'stalled_end';
  return null;
 }
-function battleRecoveryPlans(s){
+function battleRecoveryPlans(s,options=bridgeStrategy()){
  const r=s.battleReadiness,stage=s.stage,reason=battleRecoveryCase(s);
  if(!reason)return [];
  const base={kind:'battle_recover',priority:145,level:stage.level,difficulty:stage.difficulty,category:stage.category,freeEntry:true};
@@ -550,7 +792,7 @@ function battleRecoveryPlans(s){
  const plans=reason==='missing_party'?[{...base,mode:'sync',reason,key:'battle_recover:sync:'+suffix,label:'重新同步已保存编队，恢复缺失英雄'}]:[];
  const gm=single(names.game);let target=stage.level;
  const cleared=s.combat?.available&&s.combat.current?.result==='Cleared'&&s.combat.current.level===stage.level&&s.combat.current.difficulty===stage.difficulty&&stage.level<=s.record.maxCleared;
- if(reason==='stalled_end'&&cleared&&!stage.repeat&&call(gm,'HasStageData',[stage.level+1,stage.difficulty])&&call(gm,'GetRequireItemID',[0,stage.level+1])<=0&&call(gm,'CanEnterStage',[0,stage.level+1]))target=stage.level+1;
+ if(options.progress_push!==false&&(!options.progress_max_stage||stage.level+1<=options.progress_max_stage)&&reason==='stalled_end'&&cleared&&!stage.repeat&&call(gm,'HasStageData',[stage.level+1,stage.difficulty])&&call(gm,'GetRequireItemID',[0,stage.level+1])<=0&&call(gm,'CanEnterStage',[0,stage.level+1]))target=stage.level+1;
  if(call(gm,'GetRequireItemID',[stage.category,target])<=0&&call(gm,'CanEnterStage',[stage.category,target]))plans.push({...base,level:target,mode:'stage',reason,key:'battle_recover:stage:'+suffix+':'+target,label:target===stage.level?'重新进入当前免费关卡，接续战斗':'已确认通关，接续下一免费关卡'});
  return plans;
 }
@@ -579,22 +821,23 @@ function progressionOpportunities(s,dm,im,add,issues,options=bridgeStrategy()){
  const challenge=stageByLevel.get(next);
  const entry=levels.includes(next)?entranceStatus(gm,im,0,next):null;
  // Return directly to the frontier. Disabling repeat on an old map replays cleared Bosses.
- const gate=s.stage.level!==next&&entry&&!entry.safe?entry:null;
+ const strategyGate=entry&&(!options.progress_push||options.progress_max_stage>0&&next>options.progress_max_stage||entry.ticket>0&&!options.progress_boss_tickets);
+ const gate=strategyGate?{...entry,safe:false,reason:'strategy_limit'}:s.stage.level!==next&&entry&&!entry.safe?entry:null;
  s.progression={mode:s.stage.repeat?'repeat':'push',gate,boss:entry&&entry.ticket>0?entry:null,
   nextChallenge:challenge?{level:next,difficulty:read(challenge,'Difficulty'),ticket:entry?.ticket||0}:null};
  s.entryTickets=containerEntries(im).map(e=>({place:e.place,...itemInfo(e.item)})).filter(p=>[690100,690200,690300,690400].includes(p.id));
- if(challenge&&entry?.safe&&s.stage.level<next&&call(gm,'CanEnterStage',[0,next])){
+ if(!strategyGate&&challenge&&entry?.safe&&s.stage.level<next&&call(gm,'CanEnterStage',[0,next])){
    if(entry.ticket>0)add('progress','boss:'+next+':'+entry.uid,'挑战主线前沿第 '+next+' 关 Boss',108,
     {mode:'boss',phase:'travel',repeat:false,level:next,difficulty:read(challenge,'Difficulty'),ticket:entry.ticket,ticketUid:entry.uid,ticketBefore:entry.count});
   else add('progress','push:'+next,'直接挑战最高已通关后的第 '+next+' 关',108,
    {mode:'push',phase:'travel',repeat:false,level:next,difficulty:read(challenge,'Difficulty'),freeEntry:true});
  }
  if(gate){
-  issues.push(gate.reason==='protected_ticket'?'主线前沿入场物品受保护，继续免费练级与成长':'主线前沿缺少可用入场物品，继续免费练级与成长');
+  issues.push(gate.reason==='strategy_limit'?'已达到自定义主线范围，继续已开启的免费练级与成长':gate.reason==='protected_ticket'?'主线前沿入场物品受保护，继续免费练级与成长':'主线前沿缺少可用入场物品，继续免费练级与成长');
   if(!s.stage.repeat&&s.stage.level<=frontier&&call(gm,'GetRequireItemID',[0,s.stage.level])<=0)
    add('progress','guard_gate:'+next+':'+gate.reason,'保留入场物品，当前免费关卡继续成长',130,{mode:'guard',repeat:true,freeEntry:true});
  }else if(s.stage.repeat&&activeFrontierBattle(s))add('progress','frontier_repeat_off','当前前沿完成后继续自动推进',130,{mode:'guard',repeat:false,freeEntry:true,requiresProgress:true});
- else if(s.stage.repeat&&s.stage.level>=next)add('progress','repeat_off','恢复主线自动推进',106,{mode:'push',repeat:false});
+ else if(!strategyGate&&s.stage.repeat&&s.stage.level>=next)add('progress','repeat_off','恢复主线自动推进',106,{mode:'push',repeat:false});
  // Anchor the band to the highest cleared record, not the highest currently enterable map.
  const chapterNumber=frontier>0?Math.ceil(frontier/10):1;
  const chapterStart=(chapterNumber-1)*10+1,chapterEnd=chapterNumber*10;
@@ -656,9 +899,9 @@ function passiveUtility(row,actives,context={}){
  const delta=row.learned?row.increment:row.factor;
  return Number.isFinite(delta)&&delta>0?weight/(1+row.learned*.14):0;
 }
-function planSkillPoints(actives,passives,build,level,context={},modules={}){
+function planSkillPoints(actives,passives,build,level,context={},modules={},controls={}){
  const selected=actives.filter(r=>build.desired.includes(r.uid)),byIndex=new Map(passives.map(r=>[r.index,r])),candidates=[];
- if(modules.active!==false)for(const r of selected)if(r.canLearn&&r.learned<r.max){
+ if(modules.active!==false)for(const r of selected)if(r.canLearn&&r.learned<r.max&&controls[r.learned>0?'active_upgrade':'active_learn']!==false){
   const grows=(r.increments||[]).some(x=>Number.isFinite(x)&&x>0)||(r.subIncrements||[]).some(x=>Number.isFinite(x)&&x>0)||r.cooldownIncrement<0;
   if(r.learned&&!grows)continue;
   candidates.push({kind:'active',skill:r.uid,target:r.uid,reason:r.learned?'core_upgrade':'core_unlock',score:r.learned?108/(1+r.learned*.32):1000,steps:1});
@@ -675,7 +918,7 @@ function planSkillPoints(actives,passives,build,level,context={},modules={}){
    p.requires.forEach((parent,i)=>require(parent,p.requireLevels[i],path));
   }
   require(target.index,target.learned+1);
-  if(!valid)continue;
+  if(!valid||[...demand.keys()].some(i=>controls[byIndex.get(i).learned>0?'passive_upgrade':'passive_learn']===false))continue;
   const next=[...demand.keys()].map(i=>byIndex.get(i)).filter(p=>p.canLearn&&p.learned<demand.get(p.index))
    .sort((a,b)=>Number(a.uid===target.uid)-Number(b.uid===target.uid)||a.index-b.index)[0];
   if(!next)continue;
@@ -692,14 +935,14 @@ function planSkillPoints(actives,passives,build,level,context={},modules={}){
 // Selected actives retain their first level; authorized upgrades and passive points share the pool.
 // The pool survives each one-point refund/learn and bridge restart without a saved reset job.
 function planSkillReallocation(actives,passives,build,level,points,context={},options={}){
- const modules=options.modules||{},incremental=()=>planSkillPoints(actives,passives,build,level,context,modules);
+ const modules=options.modules||{},incremental=()=>planSkillPoints(actives,passives,build,level,context,modules,options);
  // Do not refund or spend position-sensitive passive points on an unknown role.
  // Core active growth and every other automation module remain available.
  if(modules.passive!==false&&context.arranged&&context.positionKnown===false
   &&skillProfile(actives.filter(a=>build.desired.includes(a.uid)))==='guardian')
-  return {...planSkillPoints(actives,passives,build,level,context,{...modules,passive:false}),repair:{reason:'position_unknown'}};
- const repairPassive=modules.passive!==false&&options.allow_passive_refund!==false;
- const repairActive=modules.active!==false&&options.allow_active_refund===true;
+  return {...planSkillPoints(actives,passives,build,level,context,{...modules,passive:false},options),repair:{reason:'position_unknown'}};
+ const repairPassive=modules.passive!==false&&options.allow_passive_refund!==false&&options.passive_learn!==false&&options.passive_upgrade!==false;
+ const repairActive=modules.active!==false&&options.allow_active_refund===true&&options.active_learn!==false&&options.active_upgrade!==false;
  if(!repairPassive&&!repairActive)return {...incremental(),repair:null};
  const selected=actives.filter(a=>build.desired.includes(a.uid));
  const controls={active:repairActive,passive:repairPassive};
@@ -723,7 +966,7 @@ function planSkillReallocation(actives,passives,build,level,points,context={},op
  while(remaining>0){
   for(const p of simulated)p.canLearn=p.unlock<=level&&p.learned<p.max&&p.requires.every((i,n)=>i<0||simIndex.get(i).learned>=p.requireLevels[n]);
   for(const a of as)a.canLearn=a.unlock<=level&&a.learned<a.max;
-  const next=planSkillPoints(as,simulated,build,level,context,modules).candidates.find(c=>c.steps<=remaining);
+  const next=planSkillPoints(as,simulated,build,level,context,modules,options).candidates.find(c=>c.steps<=remaining);
   if(!next)break;
   (next.kind==='active'?as:simulated).find(p=>p.uid===next.skill).learned++;remaining--;route.push(next);
  }
@@ -756,14 +999,19 @@ function skillReallocationPending(snapshot,options={}){
  return (snapshot.characters||[]).some(c=>{
   if(!(snapshot.squad||[]).includes(c.id))return false;
   const r=c.skillPlanning?.repair,controls=r?.controls||{passive:true};
-  if(!(controls.passive&&options.modules?.passive!==false&&options.allow_passive_refund!==false||
-       controls.active&&options.modules?.active!==false&&options.allow_active_refund===true))return false;
+  if(!(controls.passive&&options.modules?.passive!==false&&options.allow_passive_refund!==false&&options.passive_learn!==false&&options.passive_upgrade!==false||
+       controls.active&&options.modules?.active!==false&&options.allow_active_refund===true&&options.active_learn!==false&&options.active_upgrade!==false))return false;
   if(r?.reason==='native_refund_blocked'&&!r.refund)return false;
   return (r?.excess||0)>0||r?.reason==='fill_target'&&c.points>(options.skill_point_reserve||0);
  });
 }
 function runeUtility(row,context){
- const h=row.header,party=context.characters||[],levelling=party.some(c=>c.level<(context.characterMax||101));
+ const h=row.header,party=context.characters||[],cap=context.characterMax;
+ // Unknown or incomplete observations never imply that every hero is capped.
+ const atCap=Number.isSafeInteger(cap)&&cap>0&&party.length>0&&
+  (context.squadCount===undefined||context.squadCount===party.length)&&
+  party.every(c=>Number.isSafeInteger(c.level)&&c.level===cap);
+ const levelling=!atCap;
  const economy=/KillExpGain|KillGoods|NormalBoxDropRate|BossBoxDropRate/.test(h);
  const convenience=/Box|MoveSpeed|WaveSkip|ReviveHaste|InventorySlot|StorageTab|SquadSlot/.test(h);
  const combat=!economy&&!convenience;
@@ -782,20 +1030,21 @@ function planRuneInvestment(rows,context={}){
  const wallet={201:Math.max(0,(context.soul??Infinity)-(budget.soul_reserve||0)),202:Math.max(0,(context.premium??Infinity)-(budget.premium_reserve??0))};
  const allowed=(goods,amount)=>[201,202].includes(goods)&&Number.isFinite(amount)&&amount>=0&&amount<=wallet[goods]&&(goods!==202||budget.permanent_runes!==false);
  for(const target of rows){
-  if(target.level>=target.max)continue;
+  if(target.level>=target.max||!runeAllowed(target,context.controls))continue;
   const chain=new Map();let valid=true;
   function require(id,path=new Set()){
    if(id<0)return;
    const r=byId.get(id);if(!r||path.has(id)){valid=false;return;}
    if(r.level>0&&id!==target.id)return;
    if(chain.has(id))return;
+   if(!runeAllowed(r,context.controls)){valid=false;return;}
    chain.set(id,r);path=new Set(path);path.add(id);r.requires.forEach(parent=>require(parent,path));
   }
   require(target.id);if(!valid)continue;
   const cost={201:0,202:0};
   for(const r of chain.values()){
    const goods=r.goods[Math.min(r.level,r.goods.length-1)],price=r.prices[Math.min(r.level,r.prices.length-1)];
-   if(![201,202].includes(goods)||!Number.isFinite(price)||price<0||goods===202&&(budget.permanent_runes===false||price>wallet[202])){valid=false;break;}
+   if(![201,202].includes(goods)||!Number.isFinite(price)||price<0||!runeCostAllowed(goods,price,context.controls)||goods===202&&(budget.permanent_runes===false||price>wallet[202])){valid=false;break;}
    cost[goods]+=price;
   }
   if(!valid||cost[202]>wallet[202])continue;
@@ -804,7 +1053,7 @@ function planRuneInvestment(rows,context={}){
   const score=utility/(1+Math.log1p(cost[201])/14+Math.log1p(cost[202])/5)/Math.sqrt(chain.size);
   for(const r of chain.values())if(r.canLearn){
    const goods=r.goods[Math.min(r.level,r.goods.length-1)],amount=r.prices[Math.min(r.level,r.prices.length-1)];
-   if(!allowed(goods,amount))continue;
+   if(!allowed(goods,amount)||!runeCostAllowed(goods,amount,context.controls))continue;
    const choice={id:r.id,target:target.id,offlineFallback:isOfflineRuneHeader(target.header),reason:r.id===target.id?'direct_benefit':'minimum_prerequisite',score,routeCost:cost,steps:chain.size};
    const previous=choices.get(r.id);
    if(!previous||previous.offlineFallback&&!choice.offlineFallback||previous.offlineFallback===choice.offlineFallback&&previous.score<score)choices.set(r.id,choice);
@@ -815,7 +1064,7 @@ function planRuneInvestment(rows,context={}){
 
 function runeWaiting(rows,context,onlineOnly=false){
  const byId=new Map(rows.map(r=>[r.id,r])),budget=context.budget||{};
- const unfinished=rows.filter(r=>r.level<r.max&&(!onlineOnly||!isOfflineRuneHeader(r.header)));
+ const unfinished=rows.filter(r=>r.level<r.max&&runeAllowed(r,context.controls)&&(!onlineOnly||!isOfflineRuneHeader(r.header)));
  // Include unfinished ancestors in the cost explanation, even when they are offline.
  const needed=new Map();
  function include(r,path=new Set()){if(!r||path.has(r.id))return;needed.set(r.id,r);path=new Set(path);path.add(r.id);for(const id of r.requires){const parent=byId.get(id);if(parent&&parent.level<=0)include(parent,path);}}

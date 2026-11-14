@@ -1,0 +1,15 @@
+{
+  "stages_checked_with_native_waves": 160,
+  "native_wave_rows": 1996,
+  "native_tables_sha256": {
+    "ordinary.json": "e1bad676a04ce27d9c5af89963eee422f41885f82e941860835297a1afff8773",
+    "ordinary-details.json": "16d48171c8bb38db627d1e5c450acc974c3f06eff28c88d111950ba817dc17be"
+  },
+  "per_kill_probability_measured": false,
+  "files": {
+    "equipment-distribution.png": "5807f6bac5641c1a75c160913408883933a237b75db98b418b9575d1275d8d29",
+    "equipment-distribution.pdf": "a956ee9fc6fa93f7d6a10955d6d990e6065628d82935272972f2f8980b276211",
+    "equipment-probabilities.png": "9c59a59eb287f79ebdaf89f4f8231af58bf6f723ac51c686cfad6b5e387ea3a1",
+    "equipment-probabilities.pdf": "8239e14b17d597ac72c63b02f92a78a94539a9ef5276aebb2d43f89654002046"
+  }
+}

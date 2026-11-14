@@ -8,6 +8,7 @@ import copy
 import hashlib
 import json
 import math
+import threading
 from pathlib import Path
 
 from .storage import DATA,atomic_json
@@ -18,7 +19,13 @@ def valid_receipt(value):
     if not all(isinstance(value.get(k),str) and 0<len(value[k])<=limit
                for k,limit in (('account',256),('requestId',120))):return False
     opened=value.get('openedCount');status=value.get('status')
-    if type(opened) is not int or not 0<=opened<=8 or status not in ('confirmed','pending','waiting','rejected'):return False
+    if type(opened) is not int or not 0<=opened<=8 or status not in ('confirmed','pending','waiting','rejected','unresolved'):return False
+    if status=='unresolved':
+        fence=value.get('sealed')
+        if not isinstance(fence,dict) or fence.get('schema')!=1 or fence.get('source')!='native_main_thread_fence':return False
+        if type(fence.get('record')) is not int or fence['record']<0:return False
+        counts=fence.get('counts')
+        if not isinstance(counts,list) or len(counts)!=3 or any(type(n) is not int or n<0 for n in counts):return False
     if status in ('waiting','rejected') and opened:return False
     if status=='confirmed' and not opened:return False
     for key in ('recordBefore','recordAfter'):
@@ -33,6 +40,7 @@ class BoxReceiptStore:
     def __init__(self,pid,created,directory=None):
         if type(pid) is not int or pid<=0 or type(created) not in (int,float) or not math.isfinite(created) or created<=0:
             raise ValueError('invalid_box_receipt_process_identity')
+        self.lock=threading.RLock()
         self.identity={'pid':pid,'created':created};self.receipts={};self.failed=False
         digest=hashlib.sha256(json.dumps([pid,created],separators=(',',':')).encode()).hexdigest()
         self.path=Path(directory if directory is not None else DATA/'box-receipts')/(digest+'.json')
@@ -50,18 +58,22 @@ class BoxReceiptStore:
             # Preserve the original file; it cannot authorize recovery or replay.
             self.failed=True
 
-    def restore(self):return copy.deepcopy(list(self.receipts.values()))
+    def restore(self):
+        with self.lock:return copy.deepcopy(list(self.receipts.values()))
 
     def checkpoint(self,receipt):
+        with self.lock:return self._checkpoint(receipt)
+
+    def _checkpoint(self,receipt):
         if not valid_receipt(receipt):return False
         key=receipt['requestId'];previous=self.receipts.get(key)
         if previous and (previous['account']!=receipt['account'] or previous['openedCount']>receipt['openedCount']
-                or previous['status']!='pending' and receipt['status']=='pending'):
+                or previous['status']!='pending' and receipt['status']!=previous['status']):
             return False
         if previous==receipt and not self.failed:return True
         updated=copy.deepcopy(self.receipts);updated[key]=copy.deepcopy(receipt)
         while len(updated)>32:
-            oldest=next((k for k,v in updated.items() if k!=key and v['status']!='pending'),None)
+            oldest=next((k for k,v in updated.items() if k!=key and v['status'] not in ('pending','unresolved')),None)
             if oldest is None:break
             updated.pop(oldest)
         try:

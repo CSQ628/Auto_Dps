@@ -216,3 +216,14 @@ test('real executor rejects any changed party or candidate revision before nativ
  }
  snapshot.equipmentContext='original-party';current={...base};assert.equal(c.executeAction(cmd).status,'confirmed');assert.equal(calls,1);
 });
+
+
+test('disabled equipment parts and sources keep upgrade protection without scheduling swaps',()=>{
+ for(const controls of [{equipment_part_main_weapon:false},{equipment_replace:false},{equipment_storage:false}]){
+  const f=fixture(),chars=[f.character(1,[f.item('old',1)])];f.storage.items=[f.item('better',10)];
+  const reserved=new Set();assert.equal(f.equipmentPlans(f.im,chars,[1],[],reserved,0,controls).length,0);
+  assert.ok(reserved.has('better'));assert.equal(f.mutations.length,0);assert.equal(f.rooted(),0);
+ }
+ const f=fixture(),chars=[f.character(1,[null])];f.inv.items=[f.item('better',10)];
+ const reserve=new Set();assert.equal(f.equipmentPlans(f.im,chars,[1],[],reserve,0,{equipment_fill_empty:false}).length,0);assert.ok(reserve.has('better'));
+});

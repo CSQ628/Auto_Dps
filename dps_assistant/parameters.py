@@ -37,7 +37,7 @@ PARAMETERS = [
  number('farm_failure_limit','有效失败样本数',2,'growth',1,20,'次',hint='失败次数不会直接触发降图；失败地图需达到此结算数并完成最少观测时长，才能按游戏原生经验收益参与比较。无有效样本达到试打上限后轮测本章其他地图。'),
  switch('adaptive_farming','按实测经验选择练级点',True,'growth','在免费已通关候选中比较；编队战力变化后重新观测，不延长主线重试周期。'),
  number('farm_sample_seconds','每个练级点最少有效观测',90,'growth',30,600,'秒',hint='还需完整战斗结算：通关一次，或失败结算达到失败样本阈值；经验收益取游戏原生角色经验累计。暂停、切场、离线和观测中断不计入。'),
- number('farm_probe_seconds','单图无有效结算的试打上限',240,'growth',60,1800,'秒',hint='同一战力下有效观察达到此时长仍无可比较样本时，轮测本章其他免费图。成长后重新采样，但同一次试打累计最多为此值与最少观测时长较大者的两倍；暂停、离线和切场时间不计入。'),
+ number('farm_probe_seconds','单图无有效结算的试打上限',240,'growth',60,1800,'秒',hint='同一战力下达到此时长仍无可比较样本时轮测其他高级免费图；本图已有真实结算且当前一轮全程连续观测时，先等该轮完成。同一次试打累计最多为此值与最少观测时长较大者的两倍；暂停、离线和切场时间不计入。'),
  number('farm_recheck_seconds','练级实测结果有效期',900,'growth',120,7200,'秒',hint='超时或编队战力变化后重新采样。'),
  number('farm_switch_gain_percent','实测练级点切换收益',10,'growth',0,100,'%',hint='候选比较完成后，经验收益超过此比例才切换，避免反复来回。'),
  number('tower_retry_seconds','同层挑战间隔',300,'tower',30,7200,'秒'),
@@ -79,6 +79,13 @@ PARAMETER_HELP.update({'farm_level_offset': '例如最高已通关 38，设置 1
 PARAMETER_HELP.pop('tower_farm_wait_seconds', None)
 for parameter in PARAMETERS:
     if parameter["key"] in PARAMETER_HELP:parameter["hint"]=PARAMETER_HELP[parameter["key"]]
+
+from .tuning import extra_parameters, BASE_MODULE_PARAMETERS
+
+for parameter in PARAMETERS:
+    parameter['modules']=[module for module,keys in BASE_MODULE_PARAMETERS.items() if parameter['key'] in keys]
+    parameter['section']='基础参数'
+PARAMETERS += extra_parameters(number,switch,choice)
 
 DEFAULT_STRATEGY = {p['key']:p['default'] for p in PARAMETERS if p['scope']=='strategy'}
 BY_KEY = {(p['scope'],p['key']):p for p in PARAMETERS}

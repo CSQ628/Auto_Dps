@@ -6,11 +6,30 @@ from dps_assistant.diagnostics import diagnostics
 
 
 class EquipmentWorkshopTests(unittest.TestCase):
+    def test_warehouse_recycle_preparation_waits_for_eligible_forge_and_fusion(self):
+        actions=[{'kind':'withdraw','purpose':p,'key':p,'priority':102} for p in ('forge','combine','recycle')]
+        scan={'snapshot':{'loaded':True,'currencies':{}},'actions':actions}
+        config=copy.deepcopy(DEFAULT);state={'last_module':{'storage':0}}
+        self.assertEqual([a['key'] for a in ranked_actions(scan,config,state,1000)],['forge'])
+        state['cooldowns']={'forge':2000}
+        self.assertEqual([a['key'] for a in ranked_actions(scan,config,state,1000)],['combine'])
+        state['cooldowns']['combine']=2000
+        self.assertEqual([a['key'] for a in ranked_actions(scan,config,state,1000)],['recycle'])
+
+    def test_disabled_forge_and_pending_materials_do_not_stop_independent_recycling(self):
+        actions=[{'kind':'forge','key':'forge','priority':109,'part':1},
+                 {'kind':'combine','key':'combine','priority':108,'allowed':['reserved'],'category':0,'tier':1,'maxGrade':1},
+                 {'kind':'decompose','key':'recycle','priority':102,'allowed':['surplus']}]
+        scan={'snapshot':{'loaded':True,'currencies':{}},'actions':actions};config=copy.deepcopy(DEFAULT)
+        config['modules']['forge']=False
+        state={'pending_results':{'old':{'action':{'kind':'combine','allowed':['reserved']}}}}
+        self.assertEqual([a['key'] for a in ranked_actions(scan,config,state,1000)],['recycle'])
+
     def test_forge_then_combine_then_recycle_respects_cooldowns_and_warehouse_preparation(self):
         for kind in ('forge','withdraw'):
             first={'kind':kind,'key':'craft','purpose':'forge','priority':85}
             scan={'snapshot':{'loaded':True,'currencies':{}},'actions':[first,
-                {'kind':'combine','key':'combine','priority':108},
+                {'kind':'combine','category':0,'maxGrade':1,'tier':1,'key':'combine','priority':108},
                 {'kind':'decompose','key':'decompose','priority':102}]}
             config=copy.deepcopy(DEFAULT)
             state={'last_module':{'forge':1000,'storage':1000,'combine':0,'decompose':0}}

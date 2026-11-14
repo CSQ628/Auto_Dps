@@ -16,7 +16,7 @@ FEATURES = {
     'decompose': ('分解', ('decompose',)),
     'storage': ('仓库', ('deposit', 'withdraw')),
     'forge': ('锻造', ('forge',)),
-    'refine': ('镶嵌', ('refine',)),
+    'refine': ('装备精炼', ('refine',)),
     'mail': ('邮件与离线收益', ('mail_claim', 'offline_close')),
     'tower': ('无限塔', ('tower', 'tower_return')),
 }

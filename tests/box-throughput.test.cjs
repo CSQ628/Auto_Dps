@@ -24,7 +24,7 @@ function fixture({counts=[20,5,3],free=40,cost=1,pendingAt=0,rejectAt=0,throwAt=
  c.maintenanceStatus=()=>({known:true,active:state.maintenance});c.openPopups=()=>state.panel?[state.panel]:[];
  const strategy={preserve_open_panels:true,pause_on_manual_panels:strict};
  const command=id=>({account:'fixture',requestId:id,strategy});
- return {state,c,open:id=>c.openBoxBatch(command(id)),scan:id=>c.boxScanFresh(command(id))};
+ return {state,c,strategy,open:id=>c.openBoxBatch(command(id)),scan:id=>c.boxScanFresh(command(id))};
 }
 
 test('one bounded batch opens eight actual boxes across all three grades without a full scan',()=>{
@@ -42,7 +42,7 @@ test('newly dropped single box opens immediately without waiting for its grade m
  const f=fixture({counts:[0,1,0]});assert.equal(f.open('one').openedCount,1);assert.equal(f.scan().snapshot.boxes.total,0);
 });
 test('native bag occupancy is rechecked after each box and full bag stops consumption',()=>{
- const f=fixture({free:2});const r=f.open('space');assert.equal(r.openedCount,2);assert.equal(r.stopReason,'inventory_full');assert.equal(f.state.calls.length,2);
+ const f=fixture({free:2});f.strategy.inventory_pressure_percent=100;const r=f.open('space');assert.equal(r.openedCount,2);assert.equal(r.stopReason,'inventory_full');assert.equal(f.state.calls.length,2);
 });
 test('slow native work yields after the current verified open',()=>{
  const f=fixture({cost:25});const r=f.open('slow');assert.equal(r.openedCount,1);assert.equal(r.stopReason,'box_batch_yield');
@@ -52,7 +52,7 @@ test('a new sync block caused by a native opening stops the batch before another
  const r=f.open('sync-changes');assert.equal(r.openedCount,1);assert.equal(r.stopReason,'native_sync_backlog');
 });
 test('batch reserves the initial free slots even if inventory occupancy updates on a later frame',()=>{
- const f=fixture({free:2});f.state.afterOpen=()=>{f.state.occupied--;};
+ const f=fixture({free:2});f.strategy.inventory_pressure_percent=100;f.state.afterOpen=()=>{f.state.occupied--;};
  assert.equal(f.open('deferred-bag').openedCount,2);assert.equal(f.state.calls.length,2);
 });
 test('duplicate command returns its receipt and never consumes twice',()=>{
@@ -125,4 +125,16 @@ test('another account pending receipt is neither exposed nor allowed to block th
  assert.equal(f.c.boxScanFresh({requestId:'old-account'}).receipt,null);
  const r=f.c.openBoxBatch({account:'other',requestId:'new-account'});
  assert.equal(r.openedCount,8);assert.equal(f.state.calls.length,9);
+});
+
+
+test('detailed box selection reaches the fast native path and never opens excluded grades',()=>{
+ const f=fixture();Object.assign(f.strategy,{box_grade_0:false,box_grade_2:false,box_batch_limit:3});
+ assert.equal(f.open('selected').openedCount,3);assert.deepEqual(f.state.calls,[1,1,1]);
+ f.strategy.box_grade_1=false;assert.equal(f.open('disabled').openedCount,0);assert.equal(f.scan().actions.length,0);
+});
+test('reserved inventory slots cap fast boxes while preserving receipt idempotence',()=>{
+ const f=fixture({free:5});f.strategy.inventory_pressure_percent=100;f.strategy.box_free_slots=3;
+ const r=f.open('reserve');assert.equal(r.openedCount,2);assert.equal(f.state.capacity-f.state.occupied,3);
+ assert.equal(f.open('reserve').openedCount,2);assert.equal(f.open('no-space').openedCount,0);assert.equal(f.state.calls.length,2);
 });

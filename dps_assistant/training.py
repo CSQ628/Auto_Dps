@@ -10,8 +10,11 @@ def _number(value):
 
 
 def observe_experience(snapshot, state, session, now, config=None):
-    from .policy import strength_signature
+    from .policy import strength_signature, planning_strength_available
 
+    if not planning_strength_available(snapshot):
+        state.pop('experience_observation', None)
+        return {'available': False, 'reason': 'native_planning_unavailable', 'characters': []}
     stage = snapshot.get('stage', {})
     current = snapshot.get('combat', {}).get('current') or {}
     squad = [n for n in snapshot.get('squad', []) if isinstance(n, int) and n > 0]
@@ -47,7 +50,15 @@ def observe_experience(snapshot, state, session, now, config=None):
         for c in characters]}
 
 
-def observe_farming(snapshot, state, session, now, config=None):
+def observe_farming(snapshot, state, session, now, config=None, finish_previous=False):
+    from .policy import planning_strength_available
+
+    if not planning_strength_available(snapshot):
+        state.get('farm_efficiency', {}).pop('last', None)
+        route = state.get('farm_route', {})
+        route.pop('probe_last', None)
+        route.pop('visit_probe_last', None)
+        return None
     options = strategy(config)
     candidates = snapshot.get('progression', {}).get('farmCandidates') or []
     candidates = sorted([p for p in candidates if isinstance(p.get('level'), int) and p['level'] > 0
@@ -94,7 +105,8 @@ def observe_farming(snapshot, state, session, now, config=None):
     # A pending frontier retry owns the next battle boundary; do not travel to another farm first.
     retry_pending = state.get('growth', {}).get('phase') == 'farm' and 'retry_requested_at' in state.get('growth', {})
     efficiency = observe_efficiency(snapshot, state, session, now, config or {}, route, candidates,
-                                    allow_selection=not retry_pending)
+                                    allow_selection=not retry_pending,
+                                    finalize_previous=finish_previous and state.get('growth', {}).get('phase') == 'push')
     if (previous_target == (route['level'], route['difficulty']) and failures
             and len(failures) >= options['farm_failure_limit'] and state.get('growth', {}).get('phase') in ('farm', 'endgame')):
         route['reason'] = (f'第 {route["level"]} 关已有 {len(failures)} 次失败结算；继续按原生经验采样，'

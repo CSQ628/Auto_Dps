@@ -1,9 +1,14 @@
+import json
 import math
 import time
 from .parameters import strategy, high_farm_minimum
+from .tuning import CATEGORIES, operation_allowed
 from .transitions import entry_conflicts, stage_transition
 from .mail import mail_pending
 from .equipment_stability import prepare as prepare_equipment, describe as describe_equipment
+from .workshop_receipts import KINDS as NATIVE_RECEIPT_KINDS
+
+WORKSHOP_CONSUMPTION = frozenset(('combine', 'forge', 'refine', 'decompose'))
 
 MODULES={
  'box':('自动宝箱','优先清理宝箱，联动背包扩容和换装'),
@@ -14,11 +19,11 @@ MODULES={
  'unlock':('角色解锁','满足原生条件后解锁并补齐编队'),
  'pet_unlock':('宠物培养','解锁永久小队加成，自动模式保留玩家跟随选择'),
  'progress':('主线与练级','成长后自动挑战Boss，仅按原生关卡要求使用已确认入场券'),
- 'combine':('方块合成','原生配方合成闲置材料，释放背包并接续换装'),
+ 'combine':('方块合成（含精炼材料）','按原生配方合成装备、饰品、精炼材料与制作材料，完整材料批次优先于镶嵌'),
  'decompose':('淘汰装备回收','先保留上阵英雄升级装备与配方材料，再联动背包和仓库回收淘汰装备'),
  'storage':('仓库调度','自动存仓，按装备、配方和镶嵌需求取用仓库物品'),
  'forge':('装备锻造','优先制作成长装备，缺料时接续合成和回收，联合仓库筹备材料'),
- 'refine':('装备镶嵌','为非交易装备填充可用镶嵌槽，自动筹备材料'),
+ 'refine':('装备精炼（镶嵌）','装饰、宝石和纹章先保留完整合成批次，再用余量填装备空插槽；已有效果不自动清除'),
  'mail':('邮件与离线收益','处理邮件附件与已结算的离线收益面板'),
  'tower':('无限塔挑战','只在主线推进空档挑战；刷经验期间不切入塔层'),
  'ui_cleanup':('无人值守接续','默认自动收起背包和成长窗口，可关闭自动收起，交易面板保持等待'),
@@ -54,29 +59,106 @@ def _online_rune_level(snapshot):
     return None
 
 
+def _battle_rune_nodes(snapshot):
+    scope = snapshot.get('runes', {}).get('battleScope')
+    if (not isinstance(scope, dict) or type(scope.get('schema')) is not int
+            or scope['schema'] != 1 or scope.get('policy') != 'online_without_storage_capacity'
+            or _online_rune_level(snapshot) is None):
+        return None
+    signature = scope.get('signature')
+    if not isinstance(signature, str) or not 2 <= len(signature) <= 65536:
+        return None
+    try:
+        nodes = json.loads(signature)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(nodes, list) or len(nodes) > 1024:
+        return None
+    ids = set()
+    for pair in nodes:
+        if (not isinstance(pair, list) or len(pair) != 2
+                or type(pair[0]) is not int or not 0 < pair[0] <= 2**53 - 1
+                or type(pair[1]) is not int or not 0 <= pair[1] <= 2**53 - 1
+                or pair[0] in ids):
+            return None
+        ids.add(pair[0])
+    return tuple(sorted((pair[0], pair[1]) for pair in nodes))
+
+
+def _rune_strength_scope(snapshot):
+    if _battle_rune_nodes(snapshot) is not None:
+        return 'battle_nodes_v1'
+    return 'online' if _online_rune_level(snapshot) is not None else 'legacy'
+
+
+def _party_equipment_effects(snapshot):
+    # Native revisions contain only item identity and socket effects, not transient
+    # server confirmations, locks, current health or container positions.
+    items = [item for character in arranged_characters(snapshot) for item in character.get('equipment', [])]
+    if not items:
+        return None
+    effects = {}
+    for item in items:
+        revision = item.get('revision')
+        if not isinstance(revision, str) or not 2 <= len(revision) <= 65536:
+            return None
+        try:
+            value = json.loads(revision)
+        except (ValueError, RecursionError):
+            return None
+        if (not isinstance(value, list) or len(value) != 3 or value[0] != item.get('uid')
+                or not isinstance(value[0], str) or not value[0]
+                or type(value[1]) is not int or value[1] <= 0 or value[1] != item.get('id')
+                or not isinstance(value[2], list) or len(value[2]) > 256
+                or type(item.get('sockets')) is not int or len(value[2]) != item['sockets']):
+            return None
+        sockets = []
+        for socket in value[2]:
+            if (not isinstance(socket, dict)
+                    or any(type(socket.get(key)) is not int or socket[key] < minimum
+                           for key, minimum in [('index', 0), ('id', 1), ('ability', 0)])
+                    or type(socket.get('value')) not in (int, float)
+                    or not -1e308 <= socket['value'] <= 1e308):
+                return None
+            sockets.append((socket['index'], socket['id'], socket['ability'], socket['value']))
+        # Different attachment categories can legitimately share index zero.
+        effects[item['uid']] = ('socket_effects_v1', value[1], tuple(sorted(sockets)))
+    return effects
+
+
+def _equipment_strength_scope(snapshot):
+    return 'socket_effects_v1' if _party_equipment_effects(snapshot) is not None else 'legacy'
+
+
 def progression_baseline(snapshot):
     return {'progress_strength': progression_signature(snapshot),
-            'rune_strength_scope': 'online' if _online_rune_level(snapshot) is not None else 'legacy'}
+            'rune_strength_scope': _rune_strength_scope(snapshot),
+            'equipment_strength_scope': _equipment_strength_scope(snapshot)}
 
 
 def _rebase_online_baseline(entry, snapshot, allow_missing=False):
-    # The old counter included offline gains. Rebase once without restarting a
-    # farming/retry clock or treating the format change itself as new strength.
+    # Upgrade the representation once, preserving retry and settlement clocks.
+    # A temporarily missing detailed scope uses the verified online fallback.
+    scope = _rune_strength_scope(snapshot)
     if (entry and (allow_missing or entry.get('progress_strength') is not None)
-            and entry.get('rune_strength_scope') != 'online'
-            and _online_rune_level(snapshot) is not None):
+            and ((entry.get('rune_strength_scope') != scope and scope != 'legacy')
+                 or entry.get('equipment_strength_scope', 'legacy') != _equipment_strength_scope(snapshot))):
         entry.update(progression_baseline(snapshot))
 
 
 def _party_signature(snapshot, pet):
+    effects = _party_equipment_effects(snapshot)
     characters = tuple((c['id'], c.get('level'),
                         tuple(sorted(((e.get('slot'), e.get('uid'), e.get('sockets'))
+                                      + ((effects[e['uid']],) if effects is not None else ())
                                       for e in c.get('equipment', [])), key=lambda e: (str(e[0]), str(e[1])))),
                         tuple(sorted(((p.get('kind'), p.get('skill'), p.get('level'))
                                       for p in c.get('skills', [])), key=lambda p: (str(p[0]), str(p[1]), str(p[2])))),
                         tuple(c.get('activeLoadout', []))) for c in arranged_characters(snapshot))
     online = _online_rune_level(snapshot)
-    rune_level = online if online is not None else snapshot.get('runes', {}).get('learned')
+    nodes = _battle_rune_nodes(snapshot)
+    rune_level = (('battle_nodes_v1', nodes) if nodes is not None else
+                  online if online is not None else snapshot.get('runes', {}).get('learned'))
     return str((snapshot.get('record', {}).get('maxCleared'), rune_level,
                 pet, tuple(snapshot.get('squad') or []), characters))
 
@@ -88,6 +170,12 @@ def _owned_pet_effects(snapshot):
         return tuple(sorted(((p.get('id'), p.get('ability'), p.get('factor')) for p in effects), key=str))
     # Legacy snapshots report only the count. Following never changes the bonuses.
     return pets.get('unlocked')
+
+
+def planning_strength_available(snapshot):
+    unavailable = snapshot.get('planningUnavailable') or {}
+    return not any(section in unavailable for section in
+                   ('characters', 'workshop', 'runes', 'pets', 'equipment', 'progression'))
 
 
 def strength_signature(snapshot):
@@ -161,8 +249,8 @@ def skill_repair_authorized(config, repair):
     options=strategy(config)
     modules=(config or {}).get('modules',{})
     controls=repair.get('controls',{'passive':True})
-    return bool(controls.get('passive') and modules.get('passive') is not False and options['allow_passive_refund']
-                or controls.get('active') and modules.get('active') is not False and options['allow_active_refund'])
+    return bool(controls.get('passive') and modules.get('passive') is not False and options['allow_passive_refund'] and options['passive_learn'] and options['passive_upgrade']
+                or controls.get('active') and modules.get('active') is not False and options['allow_active_refund'] and options['active_learn'] and options['active_upgrade'])
 
 
 def skill_repair_pending(snapshot, config=None):
@@ -183,6 +271,12 @@ def skill_repair_pending(snapshot, config=None):
 def observe_growth(snapshot,state,now,config=None):
     options=strategy(config)
     record=snapshot.get('record',{});frontier=record.get('maxCleared',0);deaths=record.get('deaths',0)
+    if not planning_strength_available(snapshot):
+        growth = state.get('growth') or {'phase': 'push', 'frontier': frontier, 'since': now, 'deaths': deaths}
+        return {k: growth[k] for k in ('phase', 'frontier', 'since', 'deaths')} | {
+            'retry_pending': False, 'retry_trigger': None, 'gate': None, 'skill_repair_pending': False,
+            'frontier_return_pending': False, 'observation_available': False,
+            'reason': '部分成长数据暂不可用，保留原有规划；当前战斗与其他独立模块继续。'}
     strength=progression_signature(snapshot)
     repairing=skill_repair_pending(snapshot,config)
     growth=state.setdefault('growth',{'phase':'push','frontier':frontier,'since':now,'deaths':deaths})
@@ -203,17 +297,24 @@ def observe_growth(snapshot,state,now,config=None):
             growth.pop('retry_requested_at', None)
             growth.pop('retry_trigger', None)
     _rebase_online_baseline(growth, snapshot)
+    stage = snapshot.get('stage', {})
+    entry_waiting = (stage.get('category') == 0 and type(stage.get('level')) is int and stage['level'] <= frontier
+        and any(key not in state.get('pending_results', {})
+                and entry.get('action', {}).get('kind') == 'progress'
+                and entry['action'].get('phase') == 'travel'
+                and entry['action'].get('level') == frontier + 1
+                for key, entry in state.get('entry_uncertainty', {}).items()))
     if snapshot.get('stage',{}).get('category',0)==0 and growth['phase']!='endgame':
         failures=sum(item.get('category')==0 and item.get('result')=='Failed' and item.get('level',0)>frontier and item.get('observed',0)>=growth['since'] for item in state.get('battle_observation',{}).get('outcomes',[]))
         native_available=snapshot.get('combat',{}).get('available') is True
         failed_push=failures>=options['push_failure_limit'] or (not native_available and deaths-growth['deaths']>=options['fallback_death_limit'])
         gate=snapshot.get('progression',{}).get('gate')
-        if growth['phase']=='push' and (gate or now-growth['since']>=options['push_wait_seconds'] and failed_push):
+        if growth['phase']=='push' and (gate or entry_waiting or now-growth['since']>=options['push_wait_seconds'] and failed_push):
             growth.update(phase='farm',since=now,deaths=deaths,**progression_baseline(snapshot))
             growth.pop('retry_requested_at', None)
             growth.pop('retry_trigger', None)
         elif growth['phase']=='farm':
-            if gate or repairing:
+            if gate or repairing or entry_waiting:
                 growth.pop('retry_requested_at', None)
                 growth.pop('retry_trigger', None)
             elif now-growth['since']>=options['farm_min_seconds'] and (growth.get('progress_strength')!=strength or now-growth['since']>=options['farm_retry_seconds']):
@@ -228,7 +329,8 @@ def observe_growth(snapshot,state,now,config=None):
                      and farm_retry_waiting(snapshot, growth, now, options))
     return {key:growth[key] for key in ('phase','frontier','since','deaths')}|{'retry_pending': retry_pending, 'retry_trigger':growth.get('retry_trigger'), 'reason':{'farm':'重复失败，先积累等级与战力','endgame':endgame_reason}.get(growth['phase'],{'party_growth':'上阵队伍或永久成长发生变化，重新评估主线','retry_interval':'练级重试间隔已到，重新评估主线'}.get(growth.get('retry_trigger'),'接续主线，同时检查队伍成长')),
             'gate':snapshot.get('progression',{}).get('gate'),'skill_repair_pending':repairing,
-            'frontier_return_pending':bool(frontier_return and frontier_return['waiting'])} | ({'reason':'正在重配上阵天赋，继续当前战斗与其他成长，完成后再评估新挑战。'} if repairing else {}) | ({'reason': '已满足主线重试条件，等待本场练级结算或下一轮开场；超时后接续重试。'} if retry_pending else {}) | ({'reason':'已进入未通关前沿，等待本场结算后再返回练级，其他成长继续。'} if frontier_return and frontier_return['waiting'] else {})
+            'entry_result_pending':entry_waiting,
+            'frontier_return_pending':bool(frontier_return and frontier_return['waiting'])} | ({'reason':'正在重配上阵天赋，继续当前战斗与其他成长，完成后再评估新挑战。'} if repairing else {}) | ({'reason': '已满足主线重试条件，等待本场练级结算或下一轮开场；超时后接续重试。'} if retry_pending else {}) | ({'reason':'已进入未通关前沿，等待本场结算后再返回练级，其他成长继续。'} if frontier_return and frontier_return['waiting'] else {}) | ({'reason':'Boss入场结果尚未确认，保留防重复提交记录；继续免费练级、经验比较与其他成长。'} if entry_waiting else {})
 
 def equipment_growth_signature(snapshot):
     without_gear = {**snapshot, 'characters': [{**c, 'equipment': []} for c in snapshot.get('characters', [])]}
@@ -267,7 +369,18 @@ def ranked_actions(scan,config,state,now=None):
     equipment_growth=equipment_growth_signature(scan['snapshot'])
     equipment_pending=any(p.get('action',{}).get('kind')=='equipment' for p in state.get('pending_results',{}).values())
     frontier_return=observe_frontier_return(scan['snapshot'],state,now,options)
+    workshop_pending=[p['action'] for p in state.get('pending_results',{}).values()
+                      if p.get('action',{}).get('kind') in NATIVE_RECEIPT_KINDS]
+    workshop_items={uid for p in workshop_pending for uid in [*p.get('allowed',[]),p.get('uid'),p.get('swapUid')] if uid}
     for a in scan['actions']:
+        touched={uid for uid in [*a.get('allowed',[]),a.get('uid'),a.get('swapUid'),a.get('previousUid')] if uid}
+        if workshop_items.intersection(touched) or workshop_pending and a['kind']=='sort':continue
+        if not planning_strength_available(scan['snapshot']) and (a['kind'] in ('equipment', 'tower')
+                or a['kind']=='progress' and (a.get('mode') in ('push','boss')
+                    or a.get('mode')=='farm' and a.get('phase')=='travel')
+                or a['kind']=='battle_recover' and a.get('mode')=='stage'
+                    and a.get('level')!=scan['snapshot'].get('stage',{}).get('level')):continue
+        if not operation_allowed(a,options):continue
         if a['kind']=='box' and (state.get('box_pending') or any(k.startswith('box:') for k in state.get('uncertain',{}))):continue
         if claiming and a['kind']=='mail_claim':continue
         if a['kind'] in scan['snapshot'].get('manualBlockedKinds',[]):continue
@@ -338,11 +451,36 @@ def ranked_actions(scan,config,state,now=None):
     # Keep its low growth priority, but do not leave that window to change farming maps.
     if state.get('growth',{}).get('phase')=='endgame' and any(a['kind']=='tower' for a in available):
         available=[a for a in available if not (a['kind']=='progress' and a.get('mode')=='farm')]
+    # Spend attachments only after an eligible replacement for that exact slot.
+    # Disabled/cooling-down/rejected equipment plans must not suppress refinement.
+    replacements = {(a.get('id'), a.get('slot')) for a in available if a['kind']=='equipment'}
+    pending_targets = {p.get('action',{}).get('previousUid')
+                       for p in state.get('pending_results',{}).values()
+                       if p.get('action',{}).get('kind')=='equipment'}
+    available = [a for a in available if not (a['kind']=='refine' and
+                 ((a.get('id'), a.get('slot')) in replacements or a.get('uid') in pending_targets))]
     # Forge > combine > recycle, after eligibility, budget and cooldown filters.
-    if any(a['kind']=='forge' or a['kind']=='withdraw' and a.get('purpose')=='forge' for a in available):
-        available=[a for a in available if a['kind'] not in ('combine','decompose') and not (a['kind']=='withdraw' and a.get('purpose')=='combine')]
-    if any(a['kind']=='combine' or a['kind']=='withdraw' and a.get('purpose')=='combine' for a in available):
-        available=[a for a in available if a['kind']!='decompose']
+    def workshop_order(action):
+        kind=action.get('purpose') if action['kind']=='withdraw' else action['kind']
+        return {'forge':0,'combine':1,'decompose':2,'recycle':2}.get(kind)
+    stages=[stage for a in available if (stage:=workshop_order(a)) is not None]
+    if stages:
+        first=min(stages)
+        available=[a for a in available if workshop_order(a) in (None,first)]
+    # A category preference covers both its synthesis and its warehouse recalls.
+    # Apply it after eligibility checks, so disabled, pending or unaffordable work
+    # cannot reserve a turn. Equal preferences preserve the existing action order.
+    def synthesis_priority(action):
+        if not (action['kind']=='combine' or action['kind']=='withdraw' and action.get('purpose')=='combine'):
+            return None
+        category=action.get('category')
+        if type(category) is not int or not 0<=category<len(CATEGORIES):
+            return None
+        return options['combine_'+CATEGORIES[category][0]+'_priority']
+    preferences=[value for action in available if (value:=synthesis_priority(action)) is not None]
+    if preferences:
+        preferred=min(preferences)
+        available=[action for action in available if synthesis_priority(action) in (None,preferred)]
     useful_work={'box','equipment','combine','decompose','forge','refine','deposit','withdraw','active','passive','passive_refund','skill_refund','skill_equip','skill_unequip'}
     if any(a['kind'] in useful_work for a in available):
         available=[a for a in available if a['kind']!='sort']

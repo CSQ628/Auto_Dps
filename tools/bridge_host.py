@@ -18,6 +18,7 @@ ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(ROOT))
 from dps_assistant.loopback import LoopbackHTTPServer
 from dps_assistant.box_receipts import BoxReceiptStore
+from dps_assistant.workshop_receipts import WorkshopReceiptStore
 
 
 class NotReady(RuntimeError):
@@ -27,7 +28,7 @@ class NotReady(RuntimeError):
 
 
 class BridgeHost:
-    def __init__(self, pid, root=ROOT, attach=None, process_created=None, receipt_directory=None):
+    def __init__(self, pid, root=ROOT, attach=None, process_created=None, receipt_directory=None, workshop_receipt_directory=None):
         self.pid, self.root, self.attach = pid, root, attach
         self.started = time.monotonic()
         self.state_lock, self.operation_lock = threading.RLock(), threading.RLock()
@@ -36,6 +37,17 @@ class BridgeHost:
         self.source_hash = None
         self.closed = False
         self.process_created=process_created;self.receipt_directory=receipt_directory;self.box_store=None
+        self.workshop_store=None;self.workshop_receipt_directory=workshop_receipt_directory
+
+    def script_message(self, message, data):
+        payload=message.get('payload')
+        if message.get('type')=='send' and isinstance(payload,dict) and payload.get('channel')=='box_receipt':
+            if self.box_store is not None:self.box_store.checkpoint(payload.get('receipt'))
+            return
+        if message.get('type')=='send' and isinstance(payload,dict) and payload.get('channel')=='workshop_receipt':
+            if self.workshop_store is not None:self.workshop_store.checkpoint(payload.get('receipt'))
+            return
+        report_script_error(message,data)
 
     def health(self):
         # Initialization and native calls must never block this lock or the health endpoint.
@@ -61,7 +73,7 @@ class BridgeHost:
                                if (self.root/'bridge'/name).exists())
             self.source_hash = hashlib.sha256(source.encode('utf-8')).hexdigest()
             self.script = self.session.create_script(source)
-            self.script.on('message', report_script_error)
+            self.script.on('message', self.script_message)
             with self.state_lock:
                 self.step = 'load'
             self.script.load()
@@ -76,6 +88,12 @@ class BridgeHost:
                     raise RuntimeError('game_process_identity_changed')
                 self.box_store=BoxReceiptStore(self.pid,created,self.receipt_directory)
                 self.script.exports_sync.restoreboxreceipts(self.box_store.restore())
+            if 'restoreworkshopreceipts' in exports and 'workshopreceipt' in exports:
+                created=psutil.Process(self.pid).create_time()
+                if self.process_created is not None and abs(created-self.process_created)>.001:
+                    raise RuntimeError('game_process_identity_changed')
+                self.workshop_store=WorkshopReceiptStore(self.pid,created,self.workshop_receipt_directory)
+                self.script.exports_sync.restoreworkshopreceipts(self.workshop_store.restore())
             with self.state_lock:
                 if self.closed or self.phase == 'failed':
                     return
@@ -109,11 +127,18 @@ class BridgeHost:
                         'sha256': hashlib.sha256(data).hexdigest(), 'zip': base64.b64encode(data).decode()}
             fn = getattr(self.script.exports_sync, op)
             result = fn(request['args']) if 'args' in request else fn()
+            if self.workshop_store is not None and op in ('execute','workshopreceipt') and isinstance(result,dict):
+                receipt=result.pop('workshopReceipt',None) if op=='execute' else result
+                if receipt:self.workshop_store.checkpoint(receipt)
+                if op=='execute':result['workshopReceiptPersistence']='unavailable' if self.workshop_store.failed else 'available'
             if self.box_store is not None and op in ('openboxes','boxscan') and isinstance(result,dict):
                 receipt=result if op=='openboxes' else result.get('receipt')
                 if receipt:self.box_store.checkpoint(receipt)
                 result['receiptPersistence']='unavailable' if self.box_store.failed else 'available'
+                result['bridgeSourceHash']=self.source_hash
             if op == 'opportunities':
+                result['workshopReceiptsSupported']=self.workshop_store is not None
+                result['workshopReceiptPersistence']='unavailable' if self.workshop_store is None or self.workshop_store.failed else 'available'
                 result['bridgeSourceHash'] = self.source_hash
                 if isinstance(result.get('snapshot'), dict):
                     result['snapshot']['bridgeSourceHash'] = self.source_hash
@@ -178,7 +203,7 @@ def handler_for(host, token):
                 if not 0 < size < 65536:
                     return self.send_json(400, {'error': 'body_size'})
                 request = json.loads(self.rfile.read(size))
-                if not isinstance(request, dict) or request.get('op') not in ('snapshot', 'opportunities', 'execute', 'backup', 'boxscan', 'openboxes'):
+                if not isinstance(request, dict) or request.get('op') not in ('snapshot', 'opportunities', 'execute', 'backup', 'boxscan', 'openboxes', 'workshopreceipt'):
                     return self.send_json(400, {'error': 'unknown_operation'})
                 result = host.call(request)
                 self.send_json(200, {'result': result, 'pid': host.pid})

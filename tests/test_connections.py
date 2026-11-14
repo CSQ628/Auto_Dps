@@ -107,7 +107,7 @@ class CompatibilitySchedulingTests(unittest.TestCase):
 
     def test_sort_waits_for_eligible_item_work_and_runs_before_low_priority_growth(self):
         config = copy.deepcopy(engine.DEFAULT)
-        actions = [{'kind':kind,'key':kind,'priority':priority} for kind,priority in
+        actions = [{'kind':kind,'key':kind,'priority':priority,'category':0,'maxGrade':1,'tier':1} for kind,priority in
                    [('sort',20),('combine',108),('decompose',102),('rune',90)]]
         scan = {'snapshot':{'loaded':True,'currencies':{}},'actions':actions}
         state = {'cooldowns':{}}
@@ -137,7 +137,7 @@ class FailureAtomicityTests(unittest.TestCase):
         config=copy.deepcopy(engine.DEFAULT)
         for kind in ('combine','withdraw'):
             scan={'snapshot':{'loaded':True,'currencies':{}},'actions':[
-                {'kind':kind,'key':kind,'priority':107,'purpose':'combine'},
+                {'kind':kind,'key':kind,'priority':107,'purpose':'combine','category':0,'maxGrade':1,'tier':1},
                 {'kind':'decompose','key':'recycle','priority':102}]}
             state={'last_module':{'combine':1000,'storage':1000,'decompose':0}}
             self.assertEqual(ranked_actions(scan,config,state,1000)[0]['kind'],kind)

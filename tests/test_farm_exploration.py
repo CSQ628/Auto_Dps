@@ -101,7 +101,7 @@ class ExplorationTests(unittest.TestCase):
 
     def test_ready_synthesis_always_precedes_recycling_even_with_scheduler_aging(self):
         s, state, config = fixture()
-        actions=[{'kind':'combine','key':'c','priority':108}, {'kind':'decompose','key':'d','priority':102}]
+        actions=[{'kind':'combine','category':0,'maxGrade':1,'tier':1,'key':'c','priority':108}, {'kind':'decompose','key':'d','priority':102}]
         state.update(last_module={'combine':1000,'decompose':0},scheduling_started=0)
         self.assertEqual(choose({'snapshot':s,'actions':actions}, config, state, 1000)['kind'], 'combine')
         actions[0]={'kind':'withdraw','key':'w','purpose':'combine','priority':107}

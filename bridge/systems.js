@@ -57,7 +57,7 @@ function allocateEquipment(options){
   usedItems.add(plan.uid);usedSlots.add(key);return true;
  });
 }
-function equipmentPlans(im,characters,squad=[],diagnostics=[],reserved=new Set(),minGainPercent=0){
+function equipmentPlans(im,characters,squad=[],diagnostics=[],reserved=new Set(),minGainPercent=0,controls={}){
  const available=containerEntries(im).filter(e=>call(e.item,'get_EquipmentConfig')!==null);
  const candidates=available.filter(e=>!protectedEquipmentCandidate(im,e.item)),options=[];
  const order=new Map(squad.filter(id=>id>0).map((id,i)=>[id,i]));
@@ -94,6 +94,8 @@ function equipmentPlans(im,characters,squad=[],diagnostics=[],reserved=new Set()
      reserved.add(call(candidate.item,'get_Uid'));
      if(current&&(score-base)/Math.max(1,Math.abs(base))*100<minGainPercent)continue;
      detail.upgrades++;slotDetail.upgrades++;
+     const part=['main_weapon','sub_weapon','helmet','armor','gloves','boots','accessory'][Math.min(slot,6)];
+     if(controls['equipment_part_'+part]===false||controls[current?'equipment_replace':'equipment_fill_empty']===false||controls[candidate.place==='storage'?'equipment_storage':'equipment_inventory']===false)continue;
      options.push({uid:call(candidate.item,'get_Uid'),id:character.id,slot,score,base,gain:(score-base)/Math.max(1,Math.abs(base)),source:candidate.place,previousUid:current?call(current,'get_Uid'):null,empty:!current,order:index,scoring:'native_set'});
     }
     if(future.length){
@@ -158,9 +160,31 @@ function storageAction(action){
   ok=call(im,'TryExchange',[ref(entry.container),entry.index,ref(inventory),index]);
  }
  const entries=containerEntries(im),after=entries.find(e=>call(e.item,'get_Uid')===action.uid),swapped=swap&&entries.find(e=>call(e.item,'get_Uid')===action.swapUid);
- return {status:ok&&after?.place===destination&&(!swap||swapped?.place==='storage')?'confirmed':ok?'pending':'rejected',uid:action.uid,from:entry.place,to:after?.place,tradable:read(call(entry.item,'get_Config'),'Tradable'),...(swap?{swapUid:action.swapUid,swapTo:swapped?.place}: {})};
+ const arrived=after?.place===destination&&(!swap||swapped?.place==='storage');
+ const unchanged=after?.place===entry.place&&after?.index===entry.index&&(!swap||swapped?.place===swap.place&&swapped?.index===swap.index);
+ const status=arrived?'confirmed':ok||!unchanged?'pending':'rejected';
+ return {status,...(status==='pending'?{reason:'storage_result_unconfirmed'}:{}),uid:action.uid,from:entry.place,to:after?.place,tradable:read(call(entry.item,'get_Config'),'Tradable'),...(swap?{swapUid:action.swapUid,swapTo:swapped?.place}: {})};
 }
 function socketState(p){return list(call(p,'get_Sockets')).map(s=>({index:call(s,'get_Index'),id:call(s,'get_ConfigID'),ability:call(s,'get_Ability'),value:call(s,'get_Value')}));}
+function remainingSockets(before,after){
+ const rest=after.slice();
+ for(const old of before){
+  const index=rest.findIndex(s=>['index','id','ability','value'].every(k=>s?.[k]===old?.[k]));
+  if(index<0)return null;rest.splice(index,1);
+ }
+ return rest;
+}
+function typedSocketState(equipment){
+ try{return list(call(equipment,'get_Sockets')).map(s=>({type:read(call(s,'get_Config'),'ItemType'),index:call(s,'get_Index'),id:call(s,'get_ConfigID')}));}
+ catch(error){return null;}
+}
+function refineSocketsConfirmed(before,after,typed,materialId){
+ const added=remainingSockets(before,after);
+ return after.length===before.length+1&&added?.length===1&&added[0].id===materialId&&
+  after.every(s=>Number.isInteger(s.index)&&s.index>=0&&Number.isInteger(s.id)&&Number.isInteger(s.ability)&&Number.isFinite(s.value))&&
+  Array.isArray(typed)&&typed.length===after.length&&typed.every((s,i)=>Number.isInteger(s.type)&&s.type>=0&&s.index===after[i].index&&s.id===after[i].id)&&
+  new Set(typed.map(s=>s.type+':'+s.index)).size===typed.length;
+}
 function equipmentRevision(p){
  const sockets=socketState(p).sort((a,b)=>a.index-b.index||a.id-b.id||String(a.ability).localeCompare(String(b.ability))||a.value-b.value);
  return JSON.stringify([call(p,'get_Uid'),call(p,'get_ConfigID'),sockets]);
@@ -179,15 +203,19 @@ function protectedPositions(im,characters,watched=[]){
  for(const c of characters)list(call(call(im,'GetEquipment',[c.id]),'get_Has')).forEach((p,index)=>{if(p&&(protectedItem(im,p)||watch.has(call(p,'get_Uid'))))result.push(fingerprint(p,'equipment:'+c.id,index));});
  return result;
 }
+function permittedSocketAppend(before,actual,append){
+ return !!(append&&actual&&before.count===1&&before.confirmed===true&&before.locked===false&&
+  (before.tradable===false||before.tradable===true&&append.allowTradable===true)&&
+  append.sockets.length===before.sockets.length+1&&remainingSockets(before.sockets,append.sockets)?.length===1&&
+  JSON.stringify(actual)===JSON.stringify({...before,sockets:append.sockets}));
+}
 function checkPreserved(before,after,moves=[],appends=[]){
  const positions=new Map(after.map(x=>[x.uid,x])),allowed=new Map(moves.map(m=>[m.uid,m]));
  return before.filter(x=>{
   const actual=positions.get(x.uid);if(!actual||after.filter(p=>p.uid===x.uid).length!==1)return true;
   if(JSON.stringify(actual)===JSON.stringify(x))return false;
   const append=appends.find(p=>p.uid===x.uid);
-  if(append&&x.tradable===false&&!x.locked&&append.sockets.length>x.sockets.length
-   &&JSON.stringify(append.sockets.slice(0,x.sockets.length))===JSON.stringify(x.sockets)
-   &&JSON.stringify(actual)===JSON.stringify({...x,sockets:append.sockets}))return false;
+   if(permittedSocketAppend(x,actual,append))return false;
   const move=allowed.get(x.uid);
   if(!move||!Number.isInteger(actual.index)||actual.index<0)return true;
   const index=move.index;
@@ -195,11 +223,17 @@ function checkPreserved(before,after,moves=[],appends=[]){
  });
 }
 // Trade value is independent of container order, confirmation flags and stack UIDs.
-function checkTradePreserved(before,after){
+function checkTradePreserved(before,after,appends=[]){
  const changed=[],positions=new Map(after.map(p=>[p.uid,p]));
+ const previous=new Map(before.map(p=>[p.uid,p]));
  const key=p=>JSON.stringify([p.id,p.sockets]);
  const totals=rows=>{const sums=new Map();for(const p of rows)if(p.tradable===true)sums.set(key(p),(sums.get(key(p))||0)+p.count);return sums;};
- const old=totals(before),now=totals(after);
+ // A verified append retains the original trade bucket for this exact UID only.
+ const normalized=after.map(p=>{
+  const old=previous.get(p.uid),append=appends.find(a=>a.uid===p.uid);
+  return old&&after.filter(a=>a.uid===p.uid).length===1&&permittedSocketAppend(old,p,append)?{...p,sockets:old.sockets}:p;
+ });
+ const old=totals(before),now=totals(normalized);
  for(const p of before.filter(p=>p.tradable===true)){
   const actual=positions.get(p.uid);
   if(actual&&actual.tradable===false)changed.push({uid:p.uid,reason:'trade_flag_lost'});
@@ -207,10 +241,16 @@ function checkTradePreserved(before,after){
  for(const [id,count] of old)if((now.get(id)||0)<count)changed.push({reason:'tradable_quantity_lost',before:count,after:now.get(id)||0});
  return changed;
 }
-function guardedItemAction(fn,characters,moves=[],watched=[],consuming=[],socketTarget=null){
+function guardedItemAction(fn,characters,moves=[],watched=[],consuming=[],socketTarget=null,allowTradableTarget=false){
  const im=single('DG.Item.Manager.ItemManager'),before=protectedPositions(im,characters,watched).filter(p=>!consuming.includes(p.uid));let result,error;
  try{result=fn();}catch(e){error=e;}
- const after=protectedPositions(im,characters,[...watched,...before.map(p=>p.uid)]),changed=checkPreserved(before,after,moves,!error&&result?.status==='confirmed'&&socketTarget===result.uid&&result.socketAppend?[{uid:socketTarget,sockets:result.socketAppend}]:[]),tradeChanged=checkTradePreserved(before,after);
+ const after=protectedPositions(im,characters,[...watched,...before.map(p=>p.uid)]);
+ const authorized=allowTradableTarget===true&&result?.tradableTargetAuthorized===true;
+ const appends=!error&&result?.status==='confirmed'&&socketTarget===result.uid&&result.socketAppend?[{uid:socketTarget,sockets:result.socketAppend,allowTradable:authorized}]:[];
+ // Quantity and trade flags can be checked even while socket type evidence is pending.
+ const target=after.find(p=>p.uid===socketTarget);
+ const tradeAppends=!error&&authorized&&socketTarget===result?.uid&&target?[{uid:socketTarget,sockets:target.sockets,allowTradable:true}]:appends;
+ const changed=checkPreserved(before,after,moves,appends),tradeChanged=checkTradePreserved(before,after,tradeAppends);
  if(error&&!changed.length)throw error;
  if(error)result={status:'waiting',reason:'protected_state_changed_after_error',error:String(error)};
  return {...result,protectedChecked:before.length,protectedChanged:changed,tradeChanged};
@@ -305,28 +345,48 @@ function forgeAction(cmd){
  const im=single('DG.Item.Manager.ItemManager'),cube=call(im,'get_Cube'),view=sceneObject('DG.UI.Popup.CubeAssembleView');
  const approved=approvedMaterials(im,cmd.allowed);
  if(!approved)return {status:'stale',reason:'protected_or_missing_material'};
+ const limits=cmd.materialCounts;
+ if(!limits||typeof limits!=='object'||Array.isArray(limits)||Object.keys(limits).length!==cmd.allowed.length||
+    cmd.allowed.some(uid=>!Number.isSafeInteger(limits[uid])||limits[uid]<=0)||
+    !Number.isSafeInteger(cmd.batchSize)||cmd.batchSize<=0||cmd.batchSize!==Object.values(limits).reduce((n,count)=>n+count,0)||
+    approved.some(p=>limits[call(p,'get_Uid')]>call(p,'get_Count')))return {status:'stale',reason:'material_quantity_changed'};
  if(!view||!call(cube,'get_IsEmpty')||call(call(im,'get_Input'),'get_IsHolding'))return {status:'waiting',reason:'cube_in_use'};
  const oldTier=call(view,'get_SelectedTier'),toggle=call(view,'get_IncludeStorageToggle'),oldStorage=call(toggle,'get_isOn');
- const before=inventoryItems(im).map(itemInfo);let selected=[],ok=false,popup;
+ const before=inventoryItems(im).map(itemInfo);let selected=[],ok=false,popup,touched=false,submitted=false,result,executionError,step='configure';const cleanupIssues=[];
  try{
-  call(toggle,'set_isOn',[false]);popup=activateCubeView(view);call(view,'CollectSlots');call(view,'SetSelectedTier',[cmd.tier]);
+  result=(()=>{
+  touched=true;call(toggle,'set_isOn',[false]);popup=activateCubeView(view);call(view,'CollectSlots');call(view,'SetSelectedTier',[cmd.tier]);
   const part=list(read(view,'_partSlots')).find(p=>call(p,'get_Part')===cmd.part);
   if(!part)return {status:'stale',reason:'craft_part_unavailable'};
   call(view,'SelectPart',[ref(part)]);
   call(view,'ApplyRequirements');call(view,'RebuildRules');
   const recipe=call(view,'get_CurrentConfig');
   if(!recipe||read(recipe,'ID')!==cmd.recipe)return {status:'stale',reason:'craft_recipe_changed'};
+  step='reserve';
   for(const item of approved){
-   for(let n=0;n<32&&call(cube,'CanReserveMore',[ref(item)]);n++)if(!call(im,'TryMoveToCube',[ref(item)]))break;
+   for(let n=0;n<limits[call(item,'get_Uid')]&&call(cube,'CanReserveMore',[ref(item)]);n++)if(!call(im,'TryMoveToCube',[ref(item)]))break;
   }
   const materials=list(call(cube,'get_Has')).filter(p=>p&&!p.isNull());selected=materials.map(itemInfo);
-  if(!selected.length||materials.some(p=>isTradable(p)||call(p,'get_IsLocked'))||selected.some(p=>!cmd.allowed.includes(p.uid)))return {status:'waiting',reason:'protected_craft_material'};
+  if(materials.some(p=>isTradable(p)||call(p,'get_IsLocked'))||selected.some(p=>!cmd.allowed.includes(p.uid)))return {status:'waiting',reason:'protected_craft_material'};
+  const counts={};for(const p of selected)counts[p.uid]=(counts[p.uid]||0)+1;
+  if(selected.length!==cmd.batchSize||cmd.allowed.some(uid=>counts[uid]!==limits[uid]))return {status:'waiting',reason:'material_quantity_changed'};
   if(!call(view,'get_IsReady'))return {status:'waiting',reason:'native_recipe_not_ready'};
-  ok=call(view,'TryExecute');
- }finally{call(view,'ReleaseAll');if(popup)call(popup,'OnClickClose');call(view,'SetSelectedTier',[oldTier]);call(toggle,'set_isOn',[oldStorage]);}
- const after=inventoryItems(im).map(itemInfo),old=new Map(before.map(x=>[x.uid,x.count]));
- const produced=after.filter(x=>!old.has(x.uid)||x.count>old.get(x.uid));
- return {status:ok&&produced.length?'confirmed':ok?'pending':'rejected',recipe:cmd.recipe,materials:selected,produced};
+  step='execute';submitted=true;ok=call(view,'TryExecute');return null;
+  })();
+ }catch(error){if(submitted)executionError=error;else result={status:'waiting',reason:'native_preparation_failed',step};}
+ finally{
+  const cleanup=(name,fn)=>{if(touched)try{fn();}catch(error){cleanupIssues.push(name);}};
+  cleanup('release',()=>call(view,'ReleaseAll'));if(popup)cleanup('close',()=>call(popup,'OnClickClose'));
+  cleanup('tier',()=>call(view,'SetSelectedTier',[oldTier]));cleanup('storage',()=>call(toggle,'set_isOn',[oldStorage]));
+ }
+ if(executionError)throw executionError;
+ if(result)return {...result,...(cleanupIssues.length?{cleanupIssues}:{})};
+ const receipt=materialReceipt(before,inventoryItems(im).map(itemInfo),selected);
+ const valid=ok===true&&receipt.produced.length>0&&receipt.consumed.length===cmd.allowed.length&&
+  receipt.consumed.every(p=>p.count===limits[p.uid]);
+ const uncertain=ok||receipt.consumed.length>0||receipt.produced.length>0;
+ return {status:valid?'confirmed':uncertain?'pending':'rejected',reason:valid?(cleanupIssues.length?'native_cleanup_incomplete':null):'forge_result_unconfirmed',
+  recipe:cmd.recipe,materials:selected,...receipt,...(cleanupIssues.length?{cleanupIssues}:{})};
 }
 function hasAttachmentSpace(im,equipment,item){
  if(!call(im,'CanAttach',[ref(equipment),ref(item)]))return false;
@@ -336,31 +396,95 @@ function hasAttachmentSpace(im,equipment,item){
  const used=list(call(equipment,'get_Sockets')).filter(s=>read(call(s,'get_Config'),'ItemType')===type).length;
  return Number.isInteger(capacity)&&capacity>used;
 }
+function canRefineTarget(equipment,allowTradableTarget=false,expectedGrade=null){
+ if(call(equipment,'get_IsLocked')||call(equipment,'get_IsServerConfirmed')!==true||call(equipment,'get_Count')!==1)return false;
+ if(!isTradable(equipment))return true;
+ const info=itemInfo(equipment);
+ return allowTradableTarget===true&&info.tradable===true&&[1,2,4].includes(info.kind)&&
+  Number.isInteger(info.grade)&&info.grade>=1&&info.grade<=7&&info.grade===expectedGrade;
+}
 function refineAction(cmd){
  const im=single('DG.Item.Manager.ItemManager'),cube=call(im,'get_Cube'),view=sceneObject('DG.UI.Popup.CubeRefineView');
  const approved=approvedMaterials(im,cmd.allowed);
  if(!approved)return {status:'stale',reason:'protected_or_missing_material'};
+ const material=approved[0],materialUid=call(material,'get_Uid'),materialId=call(material,'get_ConfigID');
+ if(approved.length!==1||cmd.batchSize!==1||!cmd.materialCounts||Object.keys(cmd.materialCounts).length!==1||
+    cmd.materialCounts[materialUid]!==1||call(material,'get_Kind')!==16||call(material,'get_Count')<1)return {status:'stale',reason:'material_quantity_changed'};
  if(!view||!call(cube,'get_IsEmpty')||call(call(im,'get_Input'),'get_IsHolding'))return {status:'waiting',reason:'cube_in_use'};
- const equipment=list(call(call(im,'GetEquipment',[cmd.id]),'get_Has')).find(p=>p&&call(p,'get_Uid')===cmd.uid);
- if(!equipment||isTradable(equipment)||call(equipment,'get_IsLocked'))return {status:'stale',reason:'protected_equipment'};
- const beforeSockets=socketState(equipment),before=beforeSockets.length,toggle=call(view,'get_IncludeStorageToggle'),storage=call(toggle,'get_isOn');let ok=false,selected=[],popup;
+ const equipment=list(call(call(im,'GetEquipment',[cmd.id]),'get_Has'))[cmd.slot];
+ if(!equipment||call(equipment,'get_Uid')!==cmd.uid||!canRefineTarget(equipment,cmd.allowTradableTarget,cmd.targetGrade))return {status:'stale',reason:'protected_equipment'};
+ const tradableTargetAuthorized=isTradable(equipment)&&cmd.allowTradableTarget===true;
+ if(equipmentRevision(equipment)!==cmd.itemRevision)return {status:'stale',reason:'refine_target_changed'};
+ if(!hasAttachmentSpace(im,equipment,material))return {status:'stale',reason:'refine_socket_unavailable'};
+ const beforeSockets=socketState(equipment),before=beforeSockets.length,beforeInventory=inventoryItems(im).map(itemInfo);
+ const toggle=call(view,'get_IncludeStorageToggle'),storage=call(toggle,'get_isOn');
+ let ok=false,selected=[],popup,touched=false,submitted=false,result,executionError,step='configure';const cleanupIssues=[];
  try{
-  call(toggle,'set_isOn',[false]);popup=activateCubeView(view);call(view,'CollectSlots');call(view,'SetMode',[0]);call(view,'RebuildRules');
-  if(!call(im,'TryMoveToCube',[ref(equipment)]))return {status:'waiting',reason:'equipment_not_accepted'};
-  for(const item of approved)if(hasAttachmentSpace(im,equipment,item))call(im,'TryMoveToCube',[ref(item)]);
-  const materials=list(call(cube,'get_Has')).filter(p=>p&&!p.isNull());selected=materials.map(itemInfo);
-  if(!selected.some(p=>cmd.allowed.includes(p.uid)))return {status:'waiting',reason:'native_attachment_not_ready'};
-  if(materials.some(isTradable)||selected.some(p=>p.uid!==cmd.uid&&!cmd.allowed.includes(p.uid)))return {status:'waiting',reason:'protected_refine_material'};
-  ok=call(view,'TryExecute');
- }finally{call(view,'ReleaseAll');if(popup)call(popup,'OnClickClose');call(toggle,'set_isOn',[storage]);}
- const sockets=socketState(equipment),after=sockets.length,added=sockets.slice(before),counts=new Map();
- for(const p of selected.filter(p=>p.uid!==cmd.uid&&cmd.allowed.includes(p.uid)))counts.set(p.id,(counts.get(p.id)||0)+p.count);
- const valid=ok&&after>before&&JSON.stringify(sockets.slice(0,before))===JSON.stringify(beforeSockets)
-  &&new Set(sockets.map(s=>s.index)).size===sockets.length&&added.every(s=>{
-   const count=counts.get(s.id)||0;counts.set(s.id,count-1);
-   return count>0&&Number.isInteger(s.index)&&s.index>=0&&Number.isInteger(s.ability)&&Number.isFinite(s.value);
-  });
- return {status:valid?'confirmed':ok?'pending':'rejected',uid:cmd.uid,before,after,materials:selected,...(valid?{socketAppend:sockets}:{})};
+  result=(()=>{
+   touched=true;call(toggle,'set_isOn',[false]);popup=activateCubeView(view);call(view,'CollectSlots');call(view,'SetMode',[0]);call(view,'RebuildRules');
+   step='reserve';
+   if(!call(im,'TryMoveToCube',[ref(equipment)]))return {status:'waiting',reason:'equipment_not_accepted'};
+   if(!call(im,'TryMoveToCube',[ref(material)]))return {status:'waiting',reason:'native_attachment_not_ready'};
+   const materials=list(call(cube,'get_Has')).filter(p=>p&&!p.isNull());selected=materials.map(itemInfo);
+   if(selected.length!==2||selected.filter(p=>p.uid===cmd.uid).length!==1||selected.filter(p=>p.uid===materialUid&&p.kind===16).length!==1||
+       materials.some(p=>call(p,'get_Uid')===cmd.uid?!canRefineTarget(p,cmd.allowTradableTarget,cmd.targetGrade):isTradable(p)||call(p,'get_IsLocked')||call(p,'get_IsServerConfirmed')!==true))return {status:'waiting',reason:'protected_refine_material'};
+   step='execute';submitted=true;ok=call(view,'TryExecute');return null;
+  })();
+ }catch(error){if(submitted)executionError=error;else result={status:'waiting',reason:'native_preparation_failed',step};}
+ finally{
+  const cleanup=(name,fn)=>{if(touched)try{fn();}catch(error){cleanupIssues.push(name);}};
+  cleanup('release',()=>call(view,'ReleaseAll'));if(popup)cleanup('close',()=>call(popup,'OnClickClose'));
+  cleanup('storage',()=>call(toggle,'set_isOn',[storage]));
+ }
+ if(executionError)throw executionError;
+ if(result)return {...result,...(cleanupIssues.length?{cleanupIssues}:{})};
+ const sockets=socketState(equipment),after=sockets.length;
+ const receipt=materialReceipt(beforeInventory,inventoryItems(im).map(itemInfo),selected.filter(p=>p.uid===materialUid));
+ const valid=ok===true&&refineSocketsConfirmed(beforeSockets,sockets,typedSocketState(equipment),materialId)
+  &&receipt.consumed.length===1&&receipt.consumed[0].uid===materialUid&&receipt.consumed[0].count===1&&receipt.produced.length===0;
+ const uncertain=ok||receipt.consumed.length>0||receipt.produced.length>0||JSON.stringify(sockets)!==JSON.stringify(beforeSockets);
+ return {status:valid?'confirmed':uncertain?'pending':'rejected',reason:valid?(cleanupIssues.length?'native_cleanup_incomplete':null):'refine_result_unconfirmed',
+   uid:cmd.uid,before,after,tradableTargetAuthorized,materials:selected,...receipt,...(cleanupIssues.length?{cleanupIssues}:{}),...(valid?{socketAppend:sockets}:{})};
+}
+function revalidateRefineReceipt(receipt){
+ // Only an exact, persisted native consumption reply can resolve an old pending
+ // socket check. This function only reads the current target; it never refines.
+ const result=receipt?.result,action=result?.action;
+ if(receipt?.kind!=='refine'||result?.status!=='pending'||result.reason!=='refine_result_unconfirmed'||
+  action?.kind!=='refine'||action.key!==receipt.key||action.uid!==result.uid||action.batchSize!==1||
+  !Number.isInteger(action.id)||action.id<=0||!Number.isInteger(action.slot)||action.slot<0||
+  !Array.isArray(action.allowed)||action.allowed.length!==1||action.allowed[0]===action.uid||
+  !action.materialCounts||Array.isArray(action.materialCounts)||Object.keys(action.materialCounts).length!==1||
+  action.materialCounts[action.allowed[0]]!==1||!Array.isArray(result.consumed)||result.consumed.length!==1||
+  !Array.isArray(result.produced)||result.produced.length!==0||!Array.isArray(result.tradeChanged)||result.tradeChanged.length!==0||
+  !Array.isArray(result.protectedChanged)||result.protectedChanged.length!==1||
+  !Array.isArray(result.materials)||result.materials.length!==2)return null;
+ const consumed=result.consumed[0],original=result.protectedChanged[0];
+ if(!consumed||consumed.uid!==action.allowed[0]||consumed.count!==1||consumed.reserved!==1||
+  consumed.tradable!==false||consumed.locked!==false||consumed.confirmed!==true||consumed.kind!==16)return null;
+ let revision;try{revision=JSON.parse(action.itemRevision);}catch(error){return null;}
+ if(!Array.isArray(revision)||revision.length!==3||revision[0]!==action.uid||!Array.isArray(revision[2])||
+  result.before!==revision[2].length||result.after!==result.before+1||
+  !original||original.uid!==action.uid||original.id!==revision[1]||original.place!=='equipment:'+action.id||
+   original.index!==action.slot||original.count!==1||![false,true].includes(original.tradable)||original.locked!==false||original.confirmed!==true||
+  !Array.isArray(original.sockets)||original.sockets.length!==result.before||remainingSockets(revision[2],original.sockets)?.length!==0)return null;
+ const selected=result.materials.filter(p=>p?.uid===consumed.uid),targets=result.materials.filter(p=>p?.uid===action.uid);
+ if(selected.length!==1||targets.length!==1||!Number.isInteger(selected[0].count)||selected[0].count<1||
+  !['id','kind','grade','tier','tradable','locked','confirmed','sockets'].every(k=>selected[0][k]===consumed[k])||
+   targets[0].id!==revision[1]||targets[0].count!==1||targets[0].tradable!==original.tradable||targets[0].locked!==false||
+  targets[0].confirmed!==true||targets[0].sockets!==result.before)return null;
+ if(original.tradable===true&&!(action.allowTradableTarget===true&&result.tradableTargetAuthorized===true&&
+  Number.isInteger(action.targetGrade)&&action.targetGrade>=1&&action.targetGrade<=7&&
+  targets[0].grade===action.targetGrade&&[1,2,4].includes(targets[0].kind)))return null;
+ const account=stat('DG.Save.InGame.SaveEnvironment','get_Directory').replaceAll('\\','/').split('/').pop();
+ if(account!==receipt.account)return null;
+ const im=single('DG.Item.Manager.ItemManager'),equipment=list(call(call(im,'GetEquipment',[action.id]),'get_Has'))[action.slot];
+ if(!equipment||equipment.isNull()||call(equipment,'get_Uid')!==action.uid||call(equipment,'get_ConfigID')!==revision[1]||
+   read(call(equipment,'get_Config'),'Tradable')!==original.tradable||!canRefineTarget(equipment,action.allowTradableTarget,action.targetGrade))return null;
+ const sockets=socketState(equipment);
+ if(sockets.length!==result.after||!refineSocketsConfirmed(revision[2],sockets,typedSocketState(equipment),consumed.id))return null;
+ return {...result,status:'confirmed',reason:null,socketAppend:sockets,protectedChanged:[],
+  recoveryEvidence:{source:'native_refine_revalidated',originalStatus:result.status,originalProtectedChanged:result.protectedChanged}};
 }
 function activateCubeView(view){
  const popup=sceneObject('DG.UI.Popup.CubePopup');
@@ -457,7 +581,13 @@ function cubeAction(cmd){
  if(executionError)throw executionError;
  if(result)return {...result,...(cleanupIssues.length?{cleanupIssues}: {})};
  const after=inventoryItems(im).map(itemInfo),receipt=materialReceipt(before,after,selected);
- return {status:ok&&receipt.consumed.length?'confirmed':ok?'pending':'rejected',
-  ...(cleanupIssues.length?{reason:'native_cleanup_incomplete',cleanupIssues}: {}),
-  materials:selected,...receipt,beforeCount:before.length,afterCount:after.length,soulBefore,soulAfter:call(single('DG.Manager.CurrencyManager'),'Get',[201])};
+ const expected=new Map();for(const p of selected)expected.set(p.uid,(expected.get(p.uid)||0)+1);
+ const valid=ok===true&&receipt.consumed.length===expected.size&&
+  receipt.consumed.every(p=>p.count===expected.get(p.uid))&&(cmd.kind!=='combine'||receipt.produced.length>0);
+ const soulAfter=call(single('DG.Manager.CurrencyManager'),'Get',[201]);
+ const uncertain=ok||receipt.consumed.length>0||receipt.produced.length>0||soulAfter!==soulBefore;
+ return {status:valid?'confirmed':uncertain?'pending':'rejected',
+  ...(!valid&&uncertain?{reason:cmd.kind+'_result_unconfirmed'}:cleanupIssues.length?{reason:'native_cleanup_incomplete'}:{}),
+  ...(cleanupIssues.length?{cleanupIssues}: {}),
+  materials:selected,...receipt,beforeCount:before.length,afterCount:after.length,soulBefore,soulAfter};
 }

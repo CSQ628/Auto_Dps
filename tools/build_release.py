@@ -20,7 +20,7 @@ def main():
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', 'DPSAssistant.spec'], cwd=root, check=True)
     folder = root/'dist'/('DPSAssistant-'+version)
     assert (folder/'DPSAssistant.exe').is_file()
-    for source in ['packaging/使用说明.txt', 'LICENSE', 'THIRD_PARTY_NOTICES.md']:
+    for source in ['packaging/使用说明.txt', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'PARAMETERS.md']:
         shutil.copy2(root/source, folder/Path(source).name)
     (folder/'停止助手.cmd').write_text('@echo off\r\ncd /d "%~dp0"\r\nDPSAssistant.exe --stop\r\n', encoding='utf-8')
     legal = folder/'ThirdPartyLicenses'

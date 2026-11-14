@@ -168,7 +168,8 @@ class Bridge:
     def call(self,op,args=None):
         if not self.valid():raise RuntimeError('game_process_identity_changed')
         # Only observation may be repeated after a lost connection. Never replay execute/backup.
-        if op not in ('snapshot','opportunities'):return post(self.port,self.token,op,args,prefer_native=getattr(self,'prefer_native',True))
+        if op=='workshopreceipt':return post(self.port,self.token,op,args,timeout=1,prefer_native=getattr(self,'prefer_native',True))
+        if op not in ('snapshot','opportunities','boxscan'):return post(self.port,self.token,op,args,prefer_native=getattr(self,'prefer_native',True))
         for attempt in range(3):
             try:
                 self.wait_ready()

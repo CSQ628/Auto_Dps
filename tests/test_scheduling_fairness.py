@@ -63,7 +63,7 @@ class SchedulingFairnessTests(unittest.TestCase):
         config, value = fixture()
         for first in ({'kind': 'forge', 'key': 'forge', 'priority': 85},
                       {'kind': 'withdraw', 'purpose': 'forge', 'key': 'materials', 'priority': 85}):
-            value['actions'] = [first, {'kind': 'combine', 'key': 'combine', 'priority': 108},
+            value['actions'] = [first, {'kind': 'combine', 'key': 'combine', 'priority': 108, 'category':0, 'maxGrade':1, 'tier':1},
                                 {'kind': 'decompose', 'key': 'decompose', 'priority': 102}]
             state = {'scheduling_started': 0, 'last_module': {'forge': 1000000, 'storage': 1000000}}
             self.assertEqual(choose(value, config, state, 1000000)['key'], first['key'])

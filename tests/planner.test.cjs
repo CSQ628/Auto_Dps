@@ -28,6 +28,7 @@ test('level 21 planning keeps the tier 3 recipe selector for tier 3..5 materials
  const actions=[];c.run({characters:[{id:400001,level:21}],squad:[400001],inventory:{count:1,capacity:46}},{},im,(kind,key,label,priority,data)=>actions.push({kind,...data}),[]);
  const forge=actions.find(x=>x.kind==='forge');assert.ok(forge);assert.equal(forge.recipe,50205);assert.equal(forge.tier,3);
  assert.deepEqual(Array.from(forge.allowed),['ore']);
+ assert.equal(JSON.stringify(forge.materialCounts),JSON.stringify({ore:1}));assert.equal(forge.batchSize,1);
 });
 test('material reservation uses held materials first and only takes one batch',()=>{
  const batch=materialBatch([entry('warehouse',8,'storage'),entry('held',5),entry('extra',10)],9);

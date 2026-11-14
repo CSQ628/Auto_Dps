@@ -28,8 +28,13 @@ export function Parameter({spec,value,update,controls,disabled,idPrefix="paramet
  <span className={'parameter-save '+(status==='已保存'?'saved':'')} role="status">{status==='已保存'&&<CheckCircle size={12}/>} {status}</span>{status==='保存失败'&&<Button appearance="subtle" size="small" onClick={()=>commit(last.current,version.current)}>重试保存</Button>}</div></div>;
 }
 
+export function ParameterSections({fields,config,update,controls,disabled,idPrefix='parameter',expanded=false}){
+ const sections=[...new Set(fields.map(s=>s.section||'基础参数'))];
+ return sections.map(section=><details className="parameter-subgroup" key={section} open={expanded||section==='基础参数'?true:undefined}><summary>{section}<small> · {fields.filter(s=>(s.section||'基础参数')===section).length} 项</small></summary>{fields.filter(s=>(s.section||'基础参数')===section).map(spec=><Parameter key={spec.key} spec={spec} value={spec.scope==='root'?config[spec.key]:config.strategy?.[spec.key]} update={update} controls={controls} disabled={disabled} idPrefix={idPrefix}/>)}</details>);
+}
+
 export default function Parameters({schema,config,update,focus,dataDirectory}){
- const controls=useRef(new Map()),[resetting,setResetting]=useState('');
+ const controls=useRef(new Map()),[resetting,setResetting]=useState(''),[search,setSearch]=useState('');
  useEffect(()=>{if(focus)document.getElementById('parameter-group-'+focus)?.scrollIntoView({block:'start',behavior:'smooth'});},[focus]);
  if(!schema)return <section className="panel"><h2>正在读取参数</h2></section>;
  async function reset(group){
@@ -37,7 +42,10 @@ export default function Parameters({schema,config,update,focus,dataDirectory}){
   const patch={strategy:{}};for(const spec of schema.fields.filter(s=>s.group===group)){if(spec.scope==='root')patch[spec.key]=spec.default;else patch.strategy[spec.key]=spec.default;}
   await update(patch);setResetting('');
  }
- return <div className="settings-page"><section className="panel parameter-intro"><div><SlidersHorizontal size={23}/><h2>基础参数与策略</h2></div><p>这里显示当前生效值。修改后自动保存，后续巡检使用新设置；全部实例共用策略，各账号的资源与进度独立计算。</p><nav aria-label="参数分组">{schema.groups.map(g=><a key={g.id} href={'#parameter-group-'+g.id}>{g.label}</a>)}</nav></section>
- {schema.groups.map(group=><section className="panel parameter-group" id={'parameter-group-'+group.id} key={group.id}><div className="section-title"><h2>{group.label}</h2><Button disabled={!!resetting} appearance="subtle" size="small" onClick={()=>reset(group.id)}>恢复本组默认值</Button></div>{schema.fields.filter(s=>s.group===group.id).map(spec=><Parameter key={spec.key} spec={spec} value={spec.scope==='root'?config[spec.key]:config.strategy?.[spec.key]} update={update} controls={controls} disabled={resetting===group.id}/>)}</section>)}
+ const query=search.trim().toLocaleLowerCase();
+ const fields=schema.fields.filter(s=>!query||[s.label,s.hint,s.section,s.key,schema.groups.find(g=>g.id===s.group)?.label].join(' ').toLocaleLowerCase().includes(query));
+ return <div className="settings-page"><section className="panel parameter-intro"><div><SlidersHorizontal size={23}/><h2>基础参数与策略</h2></div><p>这里显示当前生效值。修改后自动保存，后续巡检使用新设置；全部实例共用策略，各账号的资源与进度独立计算。新增细分设置默认沿用原行为。</p><Input aria-label="搜索全部功能参数" placeholder="搜索功能、参数或用途，例如精炼材料、技能、仓库" value={search} onChange={(_,d)=>setSearch(d.value)}/><p role="status">显示 {fields.length} / {schema.fields.length} 项参数</p><nav aria-label="参数分组">{schema.groups.map(g=><a key={g.id} href={'#parameter-group-'+g.id}>{g.label}</a>)}</nav></section>
+ {schema.groups.filter(group=>fields.some(s=>s.group===group.id)).map(group=><section className="panel parameter-group" id={'parameter-group-'+group.id} key={group.id}><div className="section-title"><h2>{group.label}</h2><Button disabled={!!resetting} appearance="subtle" size="small" onClick={()=>reset(group.id)}>恢复本组默认值</Button></div><ParameterSections fields={fields.filter(s=>s.group===group.id)} config={config} update={update} controls={controls} disabled={resetting===group.id} expanded={!!query}/></section>)}
+ {!fields.length&&<section className="panel"><p>没有匹配参数，试试其他关键词。</p></section>}
  <section className="panel settings-path"><strong>配置、备份与日志</strong><code>{dataDirectory}</code><p>参数保存到本机配置，关闭页面或重启助手后继续沿用。</p></section></div>;
 }

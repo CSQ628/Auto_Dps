@@ -137,9 +137,14 @@ function refreshRunesProvider(){
 }
 function runesProvider(){return runeProvider||refreshRunesProvider();}
 const queue=[];let servicing=false;
-function onMain(fn){return new Promise((resolve,reject)=>{const entry={fn,resolve,reject,deadline:Date.now()+10000};queue.push(entry);entry.timer=setTimeout(()=>{const i=queue.indexOf(entry);if(i>=0){queue.splice(i,1);reject(Error('main_thread_timeout'));}},10000);});}
+// Only errors created by removal from this queue prove that fn never ran.
+const mainNotStartedErrors=new WeakSet();
+function mainNotStartedError(reason){const error=Error(reason);mainNotStartedErrors.add(error);return error;}
+function isMainNotStarted(error){return mainNotStartedErrors.has(error);}
+
+function onMain(fn){return new Promise((resolve,reject)=>{const entry={fn,resolve,reject,deadline:Date.now()+10000};queue.push(entry);entry.timer=setTimeout(()=>{const i=queue.indexOf(entry);if(i>=0){queue.splice(i,1);reject(mainNotStartedError('main_thread_timeout'));}},10000);});}
 const hook=Interceptor.attach(method(klass('DG.InGame.Battle.Manager.BattleManager'),'Update',0).readPointer(),{
-  onEnter(){if(servicing||!queue.length)return;servicing=true;const job=queue.shift();clearTimeout(job.timer);try{if(Date.now()>job.deadline)throw Error('expired_before_execution');job.resolve(job.fn());}catch(e){job.reject(e);}finally{servicing=false;}}
+  onEnter(){if(servicing||!queue.length)return;servicing=true;const job=queue.shift();clearTimeout(job.timer);try{if(Date.now()>job.deadline)throw mainNotStartedError('expired_before_execution');job.resolve(job.fn());}catch(e){job.reject(e);}finally{servicing=false;}}
 });
 function normalBattleCounts(rm){
  try{return {normalClears:call(rm,'get_NormalStageClearCount'),normalFails:call(rm,'get_NormalStageFailCount')};}
